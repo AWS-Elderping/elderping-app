@@ -1,8 +1,8 @@
-# Stage 1: Build
+﻿# Stage 1: Build
 FROM node:18-alpine AS build
 WORKDIR /usr/src/app
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm install --omit=dev
 COPY src ./src
 
 # Stage 2: Production
@@ -15,3 +15,4 @@ COPY --chown=node:node package.json ./
 
 EXPOSE 3000
 CMD ["npm", "start"]
+

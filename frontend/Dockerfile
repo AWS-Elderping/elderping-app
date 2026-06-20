@@ -1,4 +1,4 @@
-# ============================
+﻿# ============================
 # Stage 1: Build the React app
 # ============================
 FROM node:22-alpine AS build
@@ -6,7 +6,7 @@ WORKDIR /app
 
 # Install dependencies first (layer cache optimisation)
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
 # Copy source and build
 COPY . .
@@ -26,7 +26,7 @@ COPY nginx.conf /etc/nginx/conf.d/
 # Copy built assets from build stage
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# Nginx runs as root by default — use the existing 'nginx' user (uid 101)
+# Nginx runs as root by default â€” use the existing 'nginx' user (uid 101)
 # for a non-root, unprivileged setup
 RUN chown -R nginx:nginx /usr/share/nginx/html && \
     chown -R nginx:nginx /var/cache/nginx && \
@@ -39,3 +39,4 @@ USER nginx
 EXPOSE 80
 
 CMD ["nginx", "-g", "daemon off;"]
+
