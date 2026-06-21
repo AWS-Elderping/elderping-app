@@ -46,15 +46,8 @@ jobs:
           # Fail the build if tests fail
           npm test
 
-      - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@master
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST_URL: https://sonarqube.internal.elderping.online
-
-      - name: SonarQube Quality Gate
-        uses: sonarsource/sonarqube-quality-gate-action@master
-        timeout-minutes: 5
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v5
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
@@ -115,17 +108,23 @@ jobs:
       - name: Update Helm Chart Values (GitOps)
         env:
           IMAGE_TAG: ${{ steps.get-tag.outputs.image_tag }}
+          GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
         run: |
           git config --global user.name "gitops-bot"
           git config --global user.email "gitops@elderpinq.com"
           
-          # Stash any local test modifications to prevent pull conflicts
-          git stash || true
-          git pull origin main --rebase
-          git stash pop || true
+          # Clone the separate GitOps repository
+          git clone https://x-access-token:${{ secrets.GITOPS_PAT || secrets.GITHUB_TOKEN }}@github.com/AWS-Elderping/elderping-gitops.git gitops-repo
+          cd gitops-repo
           
-          # Replace target tag in the environment-specific values file of the service
-          sed -i "s/tag: .*/tag: \"${IMAGE_TAG}\"/g" helm/charts/${{ inputs.service_name }}/values-${{ inputs.environment }}.yaml
-          git add helm/charts/${{ inputs.service_name }}/values-${{ inputs.environment }}.yaml
-          git commit -m "Auto-bump: ${{ inputs.service_name }} image tag to ${IMAGE_TAG} for ${{ inputs.environment }} [skip ci]"
-          git push origin main
+          # Target environments/<env>/<service>-values.yaml
+          TARGET_FILE="environments/${{ inputs.environment }}/${{ inputs.service_name }}-values.yaml"
+          
+          if [ -f "$TARGET_FILE" ]; then
+            sed -i "s/tag: .*/tag: \"${IMAGE_TAG}\"/g" "$TARGET_FILE"
+            git add "$TARGET_FILE"
+            git commit -m "Auto-bump: ${{ inputs.service_name }} image tag to ${IMAGE_TAG} for ${{ inputs.environment }} [skip ci]"
+            git push origin main
+          else
+            echo "Warning: Target file $TARGET_FILE not found in GitOps repository. Skipping auto-bump."
+          fi

@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       # Map change detection outputs to job outputs
-      ui-service: ${{ steps.filter.outputs.ui-service }}
+      frontend: ${{ steps.filter.outputs.frontend }}
       auth-service: ${{ steps.filter.outputs.auth-service }}
       health-service: ${{ steps.filter.outputs.health-service }}
       reminder-service: ${{ steps.filter.outputs.reminder-service }}
@@ -41,8 +41,8 @@ jobs:
         uses: dorny/paths-filter@v2
         with:
           filters: |
-            ui-service:
-              - 'ui-service/**'
+            frontend:
+              - 'frontend/**'
             auth-service:
               - 'auth-service/**'
             health-service:
@@ -78,13 +78,13 @@ jobs:
           fi
 
   # Call reusable workflow for modified services
-  ui-service:
+  frontend:
     needs: detect-changes
-    if: needs.detect-changes.outputs.ui-service == 'true'
+    if: needs.detect-changes.outputs.frontend == 'true'
     uses: ./.github/workflows/ci-reusable.yaml
     with:
-      service_name: ui-service
-      service_path: ui-service
+      service_name: frontend
+      service_path: frontend
       environment: ${{ needs.detect-changes.outputs.environment }}
     secrets: inherit
 
