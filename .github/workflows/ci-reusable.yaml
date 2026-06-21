@@ -43,8 +43,14 @@ jobs:
       - name: Run Unit Tests
         run: |
           cd ${{ inputs.service_path }}
-          # Fail the build if tests fail
-          npm run test --if-present
+          # Check if a test script is defined in package.json before running npm test
+          if node -e "const pkg = require('./package.json'); if (!pkg.scripts || !pkg.scripts.test) process.exit(1);" 2>/dev/null; then
+            echo "Test script found. Running npm test..."
+            npm test
+          else
+            echo "No test script defined in package.json. Skipping testing."
+          fi
+
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v5
