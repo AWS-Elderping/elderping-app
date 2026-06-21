@@ -1,8 +1,9 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
-const { S3Client, PutObjectCommand, GetObjectCommand } = require('@aws-sdk/client-s3');
-const { validateToken, checkRelationship } = require('./authMiddleware');
+const jwt = require('jsonwebtoken');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { validateToken, checkRelationship, requirePermission, logAuditEvent } = require('./authMiddleware');
 
 const app = express();
 app.use(cors());
@@ -43,14 +44,86 @@ async function fetchServiceData(url, token) {
   return [];
 }
 
-// Generate weekly report
-app.post('/reports/generate', validateToken, checkRelationship('elderId'), async (req, res) => {
+// Report Ownership Validation Middleware
+const verifyReportOwnership = async (req, res, next) => {
   try {
-    const { elderId } = req.body;
-    const token = req.headers.authorization.split(' ')[1];
+    const { id } = req.params;
+    if (!id) {
+      return res.status(400).json({ error: 'Report ID is required' });
+    }
+    const reportRes = await pool.query('SELECT * FROM weekly_reports WHERE id = $1', [id]);
+    if (reportRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Report profile not found' });
+    }
+    const report = reportRes.rows[0];
+    req.report = report; // Cache for subsequent handlers
 
-    if (!elderId) return res.status(400).json({ error: 'elderId is required' });
+    const { id: userId, role } = req.user;
 
+    // ADMIN/SUPER_ADMIN bypass
+    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
+      return next();
+    }
+
+    // Elder (USER) ownership check
+    if (role === 'USER' || role === 'ELDER') {
+      if (String(userId) === String(report.elder_id)) {
+        return next();
+      }
+    }
+
+    // Caregiver relationship check
+    if (role === 'CAREGIVER' || role === 'FAMILY') {
+      const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
+      const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+      const response = await fetch(`${authServiceUrl}/links/verify/${userId}/${report.elder_id}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.linked) {
+          return next();
+        }
+      }
+    }
+
+    return res.status(403).json({ error: 'Forbidden: Access denied' });
+  } catch (err) {
+    console.error('verifyReportOwnership error:', err.message);
+    res.status(500).json({ error: 'Internal server error verifying report ownership' });
+  }
+};
+
+// Asynchronous Queue Logic
+const jobQueue = [];
+let processingQueue = false;
+
+function enqueueJob(reportId, elderId, token) {
+  jobQueue.push({ reportId, elderId, token });
+  processQueue();
+}
+
+async function processQueue() {
+  if (processingQueue) return;
+  if (jobQueue.length === 0) return;
+  processingQueue = true;
+
+  const job = jobQueue.shift();
+  try {
+    await processReportJob(job.reportId, job.elderId, job.token);
+  } catch (err) {
+    console.error(`[QUEUE] Error processing report job ${job.reportId}:`, err.message);
+  } finally {
+    processingQueue = false;
+    setImmediate(processQueue);
+  }
+}
+
+async function processReportJob(reportId, elderId, token) {
+  console.log(`[WORKER] Starting report generation job ${reportId} for elderId ${elderId}`);
+  
+  // Update status to GENERATING
+  await pool.query('UPDATE weekly_reports SET status = \'GENERATING\' WHERE id = $1', [reportId]);
+
+  try {
     // Internal URLs
     const healthUrl = `${process.env.HEALTH_SERVICE_URL || 'http://health-service:3000'}/vitals/${elderId}`;
     const reminderUrl = `${process.env.REMINDER_SERVICE_URL || 'http://reminder-service:3000'}/reminders/${elderId}/compliance`;
@@ -120,11 +193,12 @@ app.post('/reports/generate', validateToken, checkRelationship('elderId'), async
       console.log(`[MOCK] Uploaded report details to S3 Bucket: ${s3BucketName}, Key: ${s3Key}`);
     }
 
-    // Write to postgres
-    const result = await pool.query(
-      `INSERT INTO weekly_reports (elder_id, s3_bucket, s3_key, compliance_score, health_risk_score)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [elderId, s3BucketName, s3Key, complianceRate, riskScore]
+    // Update PG on completion
+    await pool.query(
+      `UPDATE weekly_reports 
+       SET s3_bucket = $1, s3_key = $2, compliance_score = $3, health_risk_score = $4, status = 'COMPLETED'
+       WHERE id = $5`,
+      [s3BucketName, s3Key, complianceRate, riskScore, reportId]
     );
 
     // Call notification-service to trigger email automatically
@@ -136,18 +210,90 @@ app.post('/reports/generate', validateToken, checkRelationship('elderId'), async
       body: JSON.stringify({
         userId: elderId,
         type: 'WEEKLY_REPORT',
-        payload: { reportId: result.rows[0].id, s3Key }
+        payload: { reportId, s3Key }
       })
     }).catch(err => console.error('Failed to trigger report notification:', err.message));
 
-    res.status(201).json(result.rows[0]);
+    console.log(`[WORKER] Job ${reportId} finished successfully.`);
+  } catch (error) {
+    console.error(`[WORKER] Job ${reportId} failed during generation: ${error.message}`);
+    
+    // Increment retry count
+    const retryRes = await pool.query(
+      'UPDATE weekly_reports SET retry_count = retry_count + 1 WHERE id = $1 RETURNING retry_count',
+      [reportId]
+    );
+    const newRetryCount = retryRes.rows[0]?.retry_count || 0;
+
+    if (newRetryCount >= 5) {
+      await pool.query('UPDATE weekly_reports SET status = \'FAILED\' WHERE id = $1', [reportId]);
+      console.error(`[WORKER] Job ${reportId} failed permanently after 5 retries.`);
+    } else {
+      await pool.query('UPDATE weekly_reports SET status = \'PENDING\' WHERE id = $1', [reportId]);
+      console.log(`[WORKER] Requeuing job ${reportId} (retry #${newRetryCount})`);
+      enqueueJob(reportId, elderId, token);
+    }
+  }
+}
+
+// Startup Job Recovery
+async function recoverJobs() {
+  try {
+    const result = await pool.query(
+      `SELECT id, elder_id, retry_count FROM weekly_reports WHERE status IN ('PENDING', 'GENERATING')`
+    );
+    console.log(`[JOB RECOVERY] Found ${result.rows.length} unfinished report jobs on worker start.`);
+    const systemToken = process.env.REPORT_SERVICE_TOKEN || 'mock-report-service-token';
+
+    for (const row of result.rows) {
+      if (row.retry_count >= 5) {
+        await pool.query('UPDATE weekly_reports SET status = \'FAILED\' WHERE id = $1', [row.id]);
+        console.log(`[JOB RECOVERY] Job ${row.id} exceeded retry limit. Set status to FAILED.`);
+      } else {
+        enqueueJob(row.id, row.elder_id, systemToken);
+      }
+    }
+  } catch (err) {
+    console.error('[JOB RECOVERY ERROR] Failed to recover unfinished jobs:', err.message);
+  }
+}
+
+// Generate weekly report
+app.post('/reports/generate', validateToken, requirePermission('REPORT_GENERATE'), checkRelationship('elderId'), async (req, res) => {
+  try {
+    const { elderId } = req.body;
+    const authHeader = req.headers.authorization;
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+
+    if (!elderId) return res.status(400).json({ error: 'elderId is required' });
+
+    // Insert pending job record
+    const result = await pool.query(
+      `INSERT INTO weekly_reports (elder_id, status)
+       VALUES ($1, 'PENDING') RETURNING *`,
+      [elderId]
+    );
+    const report = result.rows[0];
+
+    // Enqueue for background processing
+    enqueueJob(report.id, elderId, token);
+
+    // Audit Log
+    logAuditEvent(req, {
+      action: 'START_REPORT_GENERATION',
+      resource: 'weekly_reports',
+      resourceId: report.id,
+      metadata: { status: 'SUCCESS', message: `Report generation job started for elder: ${elderId}` }
+    });
+
+    res.status(202).json({ id: report.id, status: 'PENDING' });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // Fetch all reports generated for an elder
-app.get('/reports/user/:elderId', validateToken, checkRelationship('elderId'), async (req, res) => {
+app.get('/reports/user/:elderId', validateToken, requirePermission('REPORT_READ'), checkRelationship('elderId'), async (req, res) => {
   try {
     const { elderId } = req.params;
     const result = await pool.query(
@@ -160,38 +306,50 @@ app.get('/reports/user/:elderId', validateToken, checkRelationship('elderId'), a
   }
 });
 
-// Retrieve specific S3 Report payload
-app.get('/reports/:id/download', validateToken, async (req, res) => {
+// GET /reports/:id/status
+app.get('/reports/:id/status', validateToken, requirePermission('REPORT_READ'), verifyReportOwnership, async (req, res) => {
   try {
-    const { id } = req.params;
-    const reportRes = await pool.query('SELECT * FROM weekly_reports WHERE id = $1', [id]);
-    if (reportRes.rows.length === 0) {
-      return res.status(404).json({ error: 'Report profile not found' });
+    const report = req.report; // Cached by verifyReportOwnership middleware
+    
+    // Audit Log
+    logAuditEvent(req, {
+      action: 'VIEW_REPORT_STATUS',
+      resource: 'weekly_reports',
+      resourceId: report.id,
+      metadata: { status: 'SUCCESS', message: `Report status viewed. Current status: ${report.status}` }
+    });
+
+    res.json({
+      id: report.id,
+      elderId: report.elder_id,
+      status: report.status,
+      retryCount: report.retry_count,
+      complianceScore: report.compliance_score,
+      riskScore: report.health_risk_score,
+      createdAt: report.created_at
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Retrieve specific S3 Report download link
+app.get('/reports/:id/download', validateToken, requirePermission('REPORT_READ'), verifyReportOwnership, async (req, res) => {
+  try {
+    const report = req.report; // Cached by verifyReportOwnership middleware
+
+    if (report.status !== 'COMPLETED') {
+      return res.status(400).json({ error: `Report is not ready for download. Current status: ${report.status}` });
     }
-    const report = reportRes.rows[0];
 
-    // Auth check
-    const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
-    let allowed = false;
+    // Audit Log
+    logAuditEvent(req, {
+      action: 'DOWNLOAD_REPORT',
+      resource: 'weekly_reports',
+      resourceId: report.id,
+      metadata: { status: 'SUCCESS', message: `Report download link requested` }
+    });
 
-    if (req.user.role === 'SUPER_ADMIN' || req.user.role === 'ADMIN') {
-      allowed = true;
-    } else if (req.user.role === 'ELDER') {
-      allowed = String(req.user.userId) === String(report.elder_id);
-    } else if (req.user.role === 'FAMILY') {
-      const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-      const response = await fetch(`${authServiceUrl}/links/verify/${req.user.userId}/${report.elder_id}`);
-      if (response.ok) {
-        const data = await response.json();
-        allowed = data.linked;
-      }
-    }
-
-    if (!allowed) {
-      return res.status(403).json({ error: 'Forbidden: Access denied' });
-    }
-
-    // Return the pre-signed URL or S3 URL config
     res.json({
       id: report.id,
       elderId: report.elder_id,
@@ -208,4 +366,5 @@ app.get('/reports/:id/download', validateToken, async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Report service running on port ${PORT}`);
+  recoverJobs();
 });

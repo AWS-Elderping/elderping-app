@@ -2,7 +2,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
 const multer = require('multer');
-const { validateToken, checkRelationship } = require('./authMiddleware');
+const { validateToken, checkRelationship, requirePermission } = require('./authMiddleware');
 const { uploadToS3, getPresignedUrl, deleteFromS3 } = require('./s3Service');
 
 const upload = multer({ storage: multer.memoryStorage() });
@@ -254,8 +254,56 @@ app.get('/vitals/trends/:userId', validateToken, checkRelationship('userId'), as
   }
 });
 
+// Document Ownership Validation Middleware
+const verifyDocumentOwnership = async (req, res, next) => {
+  try {
+    const { docId } = req.params;
+    if (!docId) {
+      return res.status(400).json({ error: 'Document ID is required' });
+    }
+    const result = await pool.query('SELECT * FROM medical_documents WHERE id = $1', [docId]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+    const doc = result.rows[0];
+    req.doc = doc; // Cache for subsequent handlers
+
+    const { id: userId, role } = req.user;
+
+    // ADMIN/SUPER_ADMIN override
+    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
+      return next();
+    }
+
+    // Elder (USER) ownership check
+    if (role === 'USER' || role === 'ELDER') {
+      if (String(userId) === String(doc.elder_id)) {
+        return next();
+      }
+    }
+
+    // Caregiver relationship check
+    if (role === 'CAREGIVER' || role === 'FAMILY') {
+      const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
+      const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+      const response = await fetch(`${authServiceUrl}/links/verify/${userId}/${doc.elder_id}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.linked) {
+          return next();
+        }
+      }
+    }
+
+    return res.status(403).json({ error: 'Forbidden: Access denied' });
+  } catch (error) {
+    console.error('verifyDocumentOwnership error:', error.message);
+    res.status(500).json({ error: 'Internal server error verifying document ownership' });
+  }
+};
+
 // Document Upload Endpoint
-app.post('/documents/upload', validateToken, upload.single('file'), async (req, res) => {
+app.post('/documents/upload', validateToken, requirePermission('HEALTH_DOCUMENT_WRITE'), upload.single('file'), async (req, res) => {
   try {
     const { elderId, documentType } = req.body;
     if (!elderId || !documentType || !req.file) {
@@ -276,6 +324,7 @@ app.post('/documents/upload', validateToken, upload.single('file'), async (req, 
       allowed = String(userId) === String(elderId);
     } else if (role === 'CAREGIVER' || role === 'FAMILY') {
       const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
+      const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
       const response = await fetch(`${authServiceUrl}/links/verify/${userId}/${elderId}`);
       if (response.ok) {
         const data = await response.json();
@@ -312,7 +361,7 @@ app.post('/documents/upload', validateToken, upload.single('file'), async (req, 
 });
 
 // List Documents Endpoint
-app.get('/documents/:elderId', validateToken, checkRelationship('elderId'), async (req, res) => {
+app.get('/documents/:elderId', validateToken, requirePermission('HEALTH_DOCUMENT_READ'), checkRelationship('elderId'), async (req, res) => {
   try {
     const { elderId } = req.params;
     const result = await pool.query(
@@ -326,40 +375,15 @@ app.get('/documents/:elderId', validateToken, checkRelationship('elderId'), asyn
 });
 
 // Download Document Endpoint (Generates 15-minute secure presigned URL)
-app.get('/documents/download/:docId', validateToken, async (req, res) => {
+app.get('/documents/download/:docId', validateToken, requirePermission('HEALTH_DOCUMENT_READ'), verifyDocumentOwnership, async (req, res) => {
   try {
-    const { docId } = req.params;
-    const result = await pool.query('SELECT * FROM medical_documents WHERE id = $1', [docId]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Document not found' });
-    }
-    const doc = result.rows[0];
-
-    // Access authorization check
-    let allowed = false;
-    const { id: userId, role } = req.user;
-    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
-      allowed = true;
-    } else if (role === 'USER' || role === 'ELDER') {
-      allowed = String(userId) === String(doc.elder_id);
-    } else if (role === 'CAREGIVER' || role === 'FAMILY') {
-      const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
-      const response = await fetch(`${authServiceUrl}/links/verify/${userId}/${doc.elder_id}`);
-      if (response.ok) {
-        const data = await response.json();
-        allowed = data.linked;
-      }
-    }
-
-    if (!allowed) {
-      return res.status(403).json({ error: 'Forbidden: Access denied' });
-    }
+    const doc = req.doc; // Cached from verifyDocumentOwnership middleware
 
     // Generate secure presigned URL (valid for 15 minutes)
     const downloadUrl = await getPresignedUrl(doc.s3_key);
 
     // Audit Log
-    await logAudit(req, 'DOWNLOAD_DOCUMENT', 'medical_documents', docId, 'SUCCESS', `Presigned URL generated for document: ${docId}`);
+    await logAudit(req, 'DOWNLOAD_DOCUMENT', 'medical_documents', doc.id, 'SUCCESS', `Presigned URL generated for document: ${doc.id}`);
 
     res.json({ downloadUrl, fileName: doc.file_name });
   } catch (error) {
@@ -368,47 +392,35 @@ app.get('/documents/download/:docId', validateToken, async (req, res) => {
 });
 
 // Delete Document Endpoint
-app.delete('/documents/:docId', validateToken, async (req, res) => {
+app.delete('/documents/:docId', validateToken, requirePermission('HEALTH_DOCUMENT_WRITE'), verifyDocumentOwnership, async (req, res) => {
+  const client = await pool.connect();
   try {
     const { docId } = req.params;
-    const result = await pool.query('SELECT * FROM medical_documents WHERE id = $1', [docId]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Document not found' });
-    }
-    const doc = result.rows[0];
+    const doc = req.doc; // Cached from verifyDocumentOwnership middleware
 
-    // Access authorization check
-    let allowed = false;
-    const { id: userId, role } = req.user;
-    if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
-      allowed = true;
-    } else if (role === 'USER' || role === 'ELDER') {
-      allowed = String(userId) === String(doc.elder_id);
-    } else if (role === 'CAREGIVER' || role === 'FAMILY') {
-      const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
-      const response = await fetch(`${authServiceUrl}/links/verify/${userId}/${doc.elder_id}`);
-      if (response.ok) {
-        const data = await response.json();
-        allowed = data.linked;
-      }
-    }
+    // Start transaction
+    await client.query('BEGIN');
 
-    if (!allowed) {
-      return res.status(403).json({ error: 'Forbidden: Access denied' });
-    }
-
-    // Delete binary from S3
+    // 1. Delete object from provider (S3 or mock) first
     await deleteFromS3(doc.s3_key);
 
-    // Delete metadata from DB
-    await pool.query('DELETE FROM medical_documents WHERE id = $1', [docId]);
+    // 2. Delete database record
+    await client.query('DELETE FROM medical_documents WHERE id = $1', [docId]);
+
+    // Commit transaction
+    await client.query('COMMIT');
 
     // Audit Log
     await logAudit(req, 'DELETE_DOCUMENT', 'medical_documents', docId, 'SUCCESS', `Document deleted: ${docId}`);
 
     res.json({ success: true, message: 'Document deleted successfully' });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    // Rollback transaction on failure
+    await client.query('ROLLBACK');
+    console.error(`Document deletion failed: ${error.message}. Transaction rolled back.`);
+    res.status(500).json({ error: `Failed to delete document: ${error.message}` });
+  } finally {
+    client.release();
   }
 });
 

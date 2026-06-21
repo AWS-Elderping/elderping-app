@@ -1,5 +1,5 @@
 // finopsProviderInterface.js
-// Interface defining the abstraction layer for cost metrics and recommendations
+// Interface defining the abstraction layer for cost metrics, budgets, and recommendations
 
 class FinOpsProviderInterface {
   /**
@@ -8,6 +8,14 @@ class FinOpsProviderInterface {
    */
   async getCosts() {
     throw new Error('Method getCosts() must be implemented.');
+  }
+
+  /**
+   * Fetch cloud budget configurations and spending
+   * @returns {Promise<Array>}
+   */
+  async getBudgets() {
+    throw new Error('Method getBudgets() must be implemented.');
   }
 
   /**

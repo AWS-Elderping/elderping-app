@@ -1,102 +1,47 @@
+// server.js
+// ElderPing Notification Service entrypoint
+
 const express = require('express');
-const { Pool } = require('pg');
 const cors = require('cors');
-const { SESClient, SendEmailCommand } = require('@aws-sdk/client-ses');
-const { SNSClient, PublishCommand } = require('@aws-sdk/client-sns');
+const notificationRoutes = require('./routes/notificationRoutes');
+const QueueService = require('./services/notificationQueueService');
+const NotificationModel = require('./models/notificationModel');
+const client = require('prom-client');
 const { SQSClient, ReceiveMessageCommand, DeleteMessageCommand } = require('@aws-sdk/client-sqs');
-const { validateToken, checkRelationship, requireAnyRole } = require('./authMiddleware');
+const { validateToken, checkRelationship } = require('./authMiddleware');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-});
-
-// AWS OIDC / IRSA detection
-const awsRegion = process.env.AWS_REGION || 'us-east-1';
-const sesSourceEmail = process.env.SES_SOURCE_EMAIL || 'alerts@elderpinq.com';
-const queueUrl = process.env.SQS_QUEUE_URL;
-
-const isAwsConfigured = process.env.MOCK_AWS !== 'true' && (
-  process.env.AWS_ACCESS_KEY_ID ||
-  process.env.AWS_ROLE_ARN ||
-  process.env.AWS_WEB_IDENTITY_TOKEN_FILE
-);
-
-let sesClient = null;
-let snsClient = null;
-let sqsClient = null;
-
-if (isAwsConfigured) {
-  try {
-    sesClient = new SESClient({ region: awsRegion });
-    snsClient = new SNSClient({ region: awsRegion });
-    if (queueUrl) {
-      sqsClient = new SQSClient({ region: awsRegion });
-    }
-  } catch (err) {
-    console.log('⚠️ AWS clients could not initialize.', err.message);
-  }
-} else {
-  console.log('ℹ️ Running notification integrations in mock mode.');
-}
+// Enable default system metrics collection
+client.collectDefaultMetrics();
 
 // Liveness probe
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'notification-service' }));
 
-// Helper to send email via SES
-async function sendSESEmail(recipient, subject, body) {
-  if (sesClient) {
-    const command = new SendEmailCommand({
-      Source: sesSourceEmail,
-      Destination: { ToAddresses: [recipient] },
-      Message: {
-        Subject: { Data: subject },
-        Body: { Text: { Data: body } }
-      }
-    });
-    await sesClient.send(command);
-  } else {
-    console.log(`[MOCK EMAIL] From: ${sesSourceEmail}, To: ${recipient}, Subject: ${subject}\nBody:\n${body}`);
+// Prometheus metrics endpoint
+app.get('/metrics', async (req, res) => {
+  try {
+    res.set('Content-Type', client.register.contentType);
+    res.end(await client.register.metrics());
+  } catch (err) {
+    res.status(500).end(err.message);
   }
-}
+});
 
-// Helper to send SMS via SNS
-async function sendSNSSMS(phone, body, isWhatsApp = false) {
-  if (isWhatsApp) {
-    // WhatsApp is stubbed as Phase 5 extension
-    console.log(`[STUB WHATSAPP] Phone: ${phone}\nMessage: ${body}`);
-    return;
-  }
-  
-  if (snsClient) {
-    const command = new PublishCommand({
-      PhoneNumber: phone,
-      Message: body,
-      MessageAttributes: {
-        'AWS.MM.SMS.SenderID': { DataType: 'String', StringValue: 'ElderPinq' }
-      }
-    });
-    await snsClient.send(command);
-  } else {
-    console.log(`[MOCK SMS] To: ${phone}\nMessage:\n${body}`);
-  }
-}
+// Mount modular endpoints under /notifications
+app.use('/notifications', notificationRoutes);
 
-// Core notification dispatcher (shared by HTTP triggers and SQS queue worker)
+// Core dispatch adapter for backwards compatibility with the SQS background poller
 async function handleNotificationDispatch(userId, type, payload) {
   if (!userId || !type || !payload) {
     throw new Error('userId, type, and payload are required');
   }
 
-  // Retrieve user contact info from auth-service
   const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
+  const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+  
   const userResponse = await fetch(`${authServiceUrl}/users/${userId}`);
   if (!userResponse.ok) {
     throw new Error(`User contact details not found for user: ${userId}`);
@@ -104,9 +49,9 @@ async function handleNotificationDispatch(userId, type, payload) {
   const user = await userResponse.json();
 
   const emailRecipient = user.email || `${user.username}@elderpinq.com`;
-  const phoneRecipient = user.phone || '+15550199'; // default mock phone
+  const phoneRecipient = user.phone || '+15550199';
 
-  // Get Preferences (fallback to default)
+  // Get Preferences from DB (fallback to default)
   let prefs = { 
     email_enabled: true, 
     sms_enabled: false, 
@@ -116,12 +61,14 @@ async function handleNotificationDispatch(userId, type, payload) {
     medication_enabled: true,
     emergency_enabled: true
   };
+  
+  const pool = NotificationModel.getPool();
   const prefsRes = await pool.query('SELECT * FROM notification_preferences WHERE user_id = $1', [userId]);
   if (prefsRes.rows.length > 0) {
     prefs = { ...prefs, ...prefsRes.rows[0] };
   }
 
-  // Granular preference checks based on notification topic
+  // Granular preference checks
   let topicEnabled = true;
   if (type.startsWith('APPOINTMENT_')) {
     topicEnabled = prefs.appointments_enabled;
@@ -134,7 +81,7 @@ async function handleNotificationDispatch(userId, type, payload) {
   }
 
   if (!topicEnabled) {
-    console.log(`[PREFERENCE FILTER] Topic ${type} is disabled for user ${userId}. Skipping notification dispatch.`);
+    console.log(`[PREFERENCE FILTER] Topic ${type} is disabled for user ${userId}. Skipping dispatch.`);
     return { status: 'SKIPPED', reason: 'Topic preference disabled' };
   }
 
@@ -184,56 +131,30 @@ async function handleNotificationDispatch(userId, type, payload) {
 
   body += `\n\nBest wishes,\nElderPinq Operations Team.`;
 
-  // Dispatch based on preferences
+  // Enqueue via modern MVC delivery engine
   if (prefs.email_enabled) {
-    try {
-      await sendSESEmail(emailRecipient, subject, body);
-      await pool.query(
-        'INSERT INTO notification_logs (user_id, channel, recipient, subject, body, status) VALUES ($1, $2, $3, $4, $5, $6)',
-        [userId, 'EMAIL', emailRecipient, subject, body, 'SENT']
-      );
-    } catch (err) {
-      await pool.query(
-        'INSERT INTO notification_logs (user_id, channel, recipient, subject, body, status, error_message) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [userId, 'EMAIL', emailRecipient, subject, body, 'FAILED', err.message]
-      );
-    }
+    const notif = await NotificationModel.createNotification({
+      channel: 'EMAIL',
+      recipient: emailRecipient,
+      subject,
+      message: body
+    });
+    QueueService.enqueue(notif.id);
   }
 
-  if (prefs.sms_enabled) {
-    try {
-      await sendSNSSMS(phoneRecipient, body, false);
-      await pool.query(
-        'INSERT INTO notification_logs (user_id, channel, recipient, subject, body, status) VALUES ($1, $2, $3, $4, $5, $6)',
-        [userId, 'SMS', phoneRecipient, subject, body, 'SENT']
-      );
-    } catch (err) {
-      await pool.query(
-        'INSERT INTO notification_logs (user_id, channel, recipient, subject, body, status, error_message) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [userId, 'SMS', phoneRecipient, subject, body, 'FAILED', err.message]
-      );
-    }
-  }
-
-  if (prefs.whatsapp_enabled) {
-    try {
-      await sendSNSSMS(phoneRecipient, body, true);
-      await pool.query(
-        'INSERT INTO notification_logs (user_id, channel, recipient, subject, body, status) VALUES ($1, $2, $3, $4, $5, $6)',
-        [userId, 'WHATSAPP', phoneRecipient, subject, body, 'SENT']
-      );
-    } catch (err) {
-      await pool.query(
-        'INSERT INTO notification_logs (user_id, channel, recipient, subject, body, status, error_message) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-        [userId, 'WHATSAPP', phoneRecipient, subject, body, 'FAILED', err.message]
-      );
-    }
+  if (prefs.sms_enabled || prefs.whatsapp_enabled) {
+    const notif = await NotificationModel.createNotification({
+      channel: 'SMS',
+      recipient: phoneRecipient,
+      message: body
+    });
+    QueueService.enqueue(notif.id);
   }
 
   return { status: 'DISPATCHED' };
 }
 
-// Trigger a notification (triggered internally or by other services)
+// Preserve existing trigger endpoint for internal system triggers
 app.post('/notifications/trigger', validateToken, checkRelationship('userId'), async (req, res) => {
   try {
     const { userId, type, payload } = req.body;
@@ -244,107 +165,16 @@ app.post('/notifications/trigger', validateToken, checkRelationship('userId'), a
   }
 });
 
-// Admin visibility logs endpoint
-app.get('/notifications/logs', validateToken, requireAnyRole(['ADMIN', 'SUPER_ADMIN']), async (req, res) => {
-  try {
-    const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
-    const offset = parseInt(req.query.offset, 10) || 0;
-    const result = await pool.query(
-      'SELECT * FROM notification_logs ORDER BY sent_at DESC LIMIT $1 OFFSET $2',
-      [limit, offset]
-    );
-    res.json(result.rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
+// SQS Queue polling consumer implementation
+let isPollingActive = true;
+const queueUrl = process.env.SQS_QUEUE_URL;
 
-// Get preferences
-app.get('/notifications/preferences/:userId', validateToken, checkRelationship('userId'), async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const result = await pool.query('SELECT * FROM notification_preferences WHERE user_id = $1', [userId]);
-    if (result.rows.length === 0) {
-      return res.json({ 
-        user_id: userId, 
-        email_enabled: true, 
-        sms_enabled: false, 
-        whatsapp_enabled: false,
-        reports_enabled: true,
-        appointments_enabled: true,
-        medication_enabled: true,
-        emergency_enabled: true
-      });
-    }
-    res.json(result.rows[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Update preferences
-app.put('/notifications/preferences/:userId', validateToken, checkRelationship('userId'), async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { 
-      emailEnabled, 
-      smsEnabled, 
-      whatsappEnabled, 
-      reportsEnabled, 
-      appointmentsEnabled, 
-      medicationEnabled, 
-      emergencyEnabled 
-    } = req.body;
-    
-    const result = await pool.query(
-      `INSERT INTO notification_preferences (
-         user_id, 
-         email_enabled, 
-         sms_enabled, 
-         whatsapp_enabled, 
-         reports_enabled, 
-         appointments_enabled, 
-         medication_enabled, 
-         emergency_enabled, 
-         updated_at
-       )
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
-       ON CONFLICT (user_id) 
-       DO UPDATE SET 
-         email_enabled = COALESCE($2, notification_preferences.email_enabled),
-         sms_enabled = COALESCE($3, notification_preferences.sms_enabled),
-         whatsapp_enabled = COALESCE($4, notification_preferences.whatsapp_enabled),
-         reports_enabled = COALESCE($5, notification_preferences.reports_enabled),
-         appointments_enabled = COALESCE($6, notification_preferences.appointments_enabled),
-         medication_enabled = COALESCE($7, notification_preferences.medication_enabled),
-         emergency_enabled = COALESCE($8, notification_preferences.emergency_enabled),
-         updated_at = CURRENT_TIMESTAMP
-       RETURNING *`,
-      [
-        userId, 
-        emailEnabled, 
-        smsEnabled, 
-        whatsappEnabled, 
-        reportsEnabled, 
-        appointmentsEnabled, 
-        medicationEnabled, 
-        emergencyEnabled
-      ]
-    );
-    res.json(result.rows[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// SQS Queue consumer polling worker
 async function processQueueMessage(body) {
   console.log('📬 SQS Message received:', JSON.stringify(body));
   let type = null;
   let payload = null;
   let userId = null;
 
-  // 1. EventBridge SQS wrapping (standard event bus payload)
   if (body['detail-type'] && body.detail) {
     const detailType = body['detail-type'];
     const detail = typeof body.detail === 'string' ? JSON.parse(body.detail) : body.detail;
@@ -356,9 +186,7 @@ async function processQueueMessage(body) {
 
     payload = detail;
     userId = detail.elderId;
-  } 
-  // 2. Direct Scheduler target or standard message payload
-  else if (body.type) {
+  } else if (body.type) {
     type = body.type;
     payload = body;
     userId = body.elderId;
@@ -368,17 +196,29 @@ async function processQueueMessage(body) {
     await handleNotificationDispatch(userId, type, payload);
     console.log(`✅ Queue event ${type} successfully processed for user: ${userId}`);
   } else {
-    console.log('⚠️ SQS Message format not recognized or missing required fields. Skipping processing.');
+    console.log('⚠️ SQS Message format not recognized. Skipping.');
   }
 }
 
 async function startSQSPoller() {
+  const awsRegion = process.env.AWS_REGION || 'us-east-1';
+  let sqsClient = null;
+
+  try {
+    if (process.env.NOTIFICATION_PROVIDER === 'aws' && queueUrl) {
+      sqsClient = new SQSClient({ region: awsRegion });
+    }
+  } catch (err) {
+    console.warn('⚠️ SQS Poller failed to initialize SQSClient:', err.message);
+  }
+
   if (!sqsClient || !queueUrl) {
-    console.log('ℹ️ Background SQS poller not active (missing client or SQS_QUEUE_URL).');
+    console.log('ℹ️ Background SQS poller not active (running locally or provider=mock).');
     return;
   }
+
   console.log(`🚀 Starting SQS Polling Worker for queue: ${queueUrl}`);
-  while (true) {
+  while (isPollingActive) {
     try {
       const command = new ReceiveMessageCommand({
         QueueUrl: queueUrl,
@@ -392,7 +232,6 @@ async function startSQSPoller() {
             const body = JSON.parse(msg.Body);
             await processQueueMessage(body);
             
-            // Delete processed message from queue
             const deleteCmd = new DeleteMessageCommand({
               QueueUrl: queueUrl,
               ReceiptHandle: msg.ReceiptHandle
@@ -404,15 +243,59 @@ async function startSQSPoller() {
         }
       }
     } catch (err) {
-      console.error('⚠️ SQS polling encountered an error. Retrying in 10 seconds...', err.message);
+      console.error('⚠️ SQS polling encountered an error. Retrying in 10s...', err.message);
       await new Promise((resolve) => setTimeout(resolve, 10000));
     }
   }
 }
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Notification service running on port ${PORT}`);
-  // Start background queue listener
-  startSQSPoller();
-});
+
+async function start() {
+  const pool = NotificationModel.getPool();
+  let retries = 5;
+
+  while (retries--) {
+    try {
+      await pool.query('SELECT 1');
+      console.log('✅ Connected to Notification database successfully.');
+      break;
+    } catch (err) {
+      console.log(`⏳ Waiting for database… (${retries} retries left) error: ${err.message}`);
+      if (retries === 0) {
+        console.error('❌ Could not connect to database. Starting server anyway...');
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+  }
+
+  // Start background queue worker
+  QueueService.startWorker();
+
+  const server = app.listen(PORT, () => {
+    console.log(`Notification service running on port ${PORT}`);
+    // Start background SQS queue poller
+    startSQSPoller();
+  });
+
+  // Graceful shutdown handling
+  const shutdown = () => {
+    console.log('🛑 Shutting down Notification Service. Cleaning queue worker and DB...');
+    isPollingActive = false;
+    QueueService.stopWorker();
+
+    server.close(() => {
+      console.log('HTTP server closed.');
+      pool.end(() => {
+        console.log('Database pool closed.');
+        process.exit(0);
+      });
+    });
+  };
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
+
+start();

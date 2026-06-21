@@ -1,67 +1,272 @@
 openapi: 3.0.3
 info:
   title: ElderPing Notification Service API
-  description: Handles notification delivery, alerts preferences, and notification delivery history logs.
   version: 1.0.0
-servers:
-  - url: http://localhost:3004
-    description: Local development reverse proxy port
+  description: Enterprise MVC alerts, templates, and analytics notification service for the ElderPing platform.
 paths:
-  /notifications/trigger:
+  /notifications/email:
     post:
-      summary: Trigger sending a notification alert
+      summary: Send email notification
+      description: Enqueues an email dispatch. Restricted to roles with NOTIFICATION_MANAGE permission (ADMIN/SUPER_ADMIN). Protects against rate limits (100/min).
       security:
-        - bearerAuth: []
+        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              properties:
-                userId:
-                  type: string
-                type:
-                  type: string
-                payload:
-                  type: object
               required:
-                - userId
-                - type
-                - payload
+                - recipient
+                - message
+              properties:
+                recipient:
+                  type: string
+                  format: email
+                  example: user@example.com
+                subject:
+                  type: string
+                  example: Alert Notification
+                message:
+                  type: string
+                  example: This is a warning notification.
+                scheduledFor:
+                  type: string
+                  format: date-time
+                  description: Optional scheduled timestamp for delayed sends
       responses:
-        '200':
-          description: Dispatch completed successfully
-
-  /notifications/logs:
-    get:
-      summary: Retrieve sent notifications history logs (ADMIN/SUPER_ADMIN only)
+        '202':
+          description: Accepted. Event successfully enqueued.
+        '400':
+          description: Bad Request. Validations failed.
+        '429':
+          description: Too Many Requests. Rate limit exceeded.
+  /notifications/sms:
+    post:
+      summary: Send SMS notification
+      description: Enqueues an SMS dispatch. Restricted to roles with NOTIFICATION_MANAGE permission (ADMIN/SUPER_ADMIN). Protects against rate limits (50/min).
       security:
-        - bearerAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - recipient
+                - message
+              properties:
+                recipient:
+                  type: string
+                  example: '+15550199'
+                message:
+                  type: string
+                  example: Immediate action required.
+                scheduledFor:
+                  type: string
+                  format: date-time
       responses:
-        '200':
-          description: Log lists
-        '403':
-          description: Forbidden
-
-  /notifications/preferences/{userId}:
-    get:
-      summary: Retrieve user notification preferences settings
+        '202':
+          description: Accepted.
+        '429':
+          description: Too Many Requests.
+  /notifications/bulk:
+    post:
+      summary: Bulk notify dispatches
+      description: Processes multiple notifications sequentially. Restricted to roles with NOTIFICATION_MANAGE permission (ADMIN/SUPER_ADMIN). Bulk size restricted to max 500 recipients. Protects against rate limits (10/min).
       security:
-        - bearerAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - items
+              properties:
+                items:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - channel
+                      - recipient
+                      - message
+                    properties:
+                      channel:
+                        type: string
+                        enum: [EMAIL, SMS]
+                      recipient:
+                        type: string
+                      subject:
+                        type: string
+                      message:
+                        type: string
+                      scheduledFor:
+                        type: string
+                        format: date-time
+      responses:
+        '202':
+          description: Accepted. Returns summary count of accepted/rejected items.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  acceptedCount:
+                    type: integer
+                  rejectedCount:
+                    type: integer
+                  queuedCount:
+                    type: integer
+                  details:
+                    type: array
+                    items:
+                      type: object
+        '429':
+          description: Too Many Requests.
+  /notifications:
+    get:
+      summary: Search notifications ledger history
+      description: Advanced filtering list. Restricted to roles with NOTIFICATION_READ permission (ADMIN/SUPER_ADMIN).
+      security:
+        - BearerAuth: []
       parameters:
-        - name: userId
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, PROCESSING, SENT, FAILED, SKIPPED, CANCELLED]
+        - name: channel
+          in: query
+          schema:
+            type: string
+            enum: [EMAIL, SMS, WHATSAPP]
+        - name: provider
+          in: query
+          schema:
+            type: string
+        - name: recipient
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Query results.
+  /notifications/stats:
+    get:
+      summary: Get notifications dashboard stats
+      description: Returns aggregated counts and success rates. Restricted to NOTIFICATION_READ.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Summary stats response.
+  /notifications/analytics:
+    get:
+      summary: Get detailed analytical insights
+      description: Daily volumes, channel breakdown, and top recipients. Restricted to NOTIFICATION_READ.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Dashboard analytics details.
+  /notifications/provider-status:
+    get:
+      summary: Check provider status and queue metrics
+      description: Returns SES/SNS connectivity and worker loop details. Restricted to NOTIFICATION_READ.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Health details response.
+  /notifications/{id}/retry:
+    post:
+      summary: Retry a failed send
+      description: Triggers a fresh send retry. Restricted to NOTIFICATION_MANAGE.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
           in: path
           required: true
           schema:
             type: string
+            format: uuid
       responses:
         '200':
-          description: User notification preferences settings details
-
+          description: Rescheduled notification details.
+  /notifications/dead-letter-queue:
+    get:
+      summary: Get Dead Letter Queue (DLQ) records
+      description: Returns logs moved to the DLQ after exceeding retries. Restricted to NOTIFICATION_MANAGE.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of DLQ items.
+  /notifications/templates:
+    get:
+      summary: Retrieve all notification templates
+      description: Get active template CRUD catalog. Restricted to NOTIFICATION_MANAGE.
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Templates catalog.
+    post:
+      summary: Create a notification template
+      description: Save a subject/body template configuration. Restricted to NOTIFICATION_MANAGE.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - channel
+                - bodyTemplate
+              properties:
+                name:
+                  type: string
+                channel:
+                  type: string
+                  enum: [EMAIL, SMS]
+                subjectTemplate:
+                  type: string
+                bodyTemplate:
+                  type: string
+      responses:
+        '201':
+          description: Template successfully created.
 components:
   securitySchemes:
-    bearerAuth:
+    BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
