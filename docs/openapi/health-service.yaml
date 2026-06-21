@@ -1,0 +1,126 @@
+openapi: 3.0.3
+info:
+  title: ElderPing Health Service API
+  description: Record and manage checkins, vitals, medical documents, health compliance trends, and timeline aggregations.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3002
+    description: Local development reverse proxy port
+paths:
+  /checkin:
+    post:
+      summary: Post a daily elder check-in status
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                status:
+                  type: string
+              required:
+                - userId
+                - status
+      responses:
+        '201':
+          description: Checkin status logged successfully
+        '403':
+          description: Forbidden - Caregiver relationship not verified
+
+  /vitals:
+    post:
+      summary: Record vitals and diagnostics
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                heartRate:
+                  type: integer
+                bloodPressure:
+                  type: string
+                oxygenSaturation:
+                  type: integer
+              required:
+                - userId
+      responses:
+        '201':
+          description: Vitals recorded successfully
+        '400':
+          description: Invalid vitals bounds input
+
+  /vitals/{userId}:
+    get:
+      summary: Fetch recent vitals logs history
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Vitals logs history lists
+
+  /documents/upload:
+    post:
+      summary: Upload a medical document (Prescription, lab reports, etc.)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                elderId:
+                  type: string
+                documentType:
+                  type: string
+                  enum: [PRESCRIPTION, LAB_REPORT, MEDICAL_RECORD, INSURANCE_DOCUMENT, DISCHARGE_SUMMARY]
+                file:
+                  type: string
+                  format: binary
+              required:
+                - elderId
+                - documentType
+                - file
+      responses:
+        '201':
+          description: Document uploaded successfully
+
+  /documents/{elderId}:
+    get:
+      summary: List medical documents metadata
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: elderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Medical documents metadata lists
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

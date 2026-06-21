@@ -269,12 +269,12 @@ app.post('/documents/upload', validateToken, upload.single('file'), async (req, 
 
     // Access scope authorization check
     let allowed = false;
-    const { userId, role } = req.user;
+    const { id: userId, role } = req.user;
     if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
       allowed = true;
-    } else if (role === 'ELDER') {
+    } else if (role === 'USER' || role === 'ELDER') {
       allowed = String(userId) === String(elderId);
-    } else if (role === 'FAMILY') {
+    } else if (role === 'CAREGIVER' || role === 'FAMILY') {
       const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
       const response = await fetch(`${authServiceUrl}/links/verify/${userId}/${elderId}`);
       if (response.ok) {
@@ -337,12 +337,12 @@ app.get('/documents/download/:docId', validateToken, async (req, res) => {
 
     // Access authorization check
     let allowed = false;
-    const { userId, role } = req.user;
+    const { id: userId, role } = req.user;
     if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
       allowed = true;
-    } else if (role === 'ELDER') {
+    } else if (role === 'USER' || role === 'ELDER') {
       allowed = String(userId) === String(doc.elder_id);
-    } else if (role === 'FAMILY') {
+    } else if (role === 'CAREGIVER' || role === 'FAMILY') {
       const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
       const response = await fetch(`${authServiceUrl}/links/verify/${userId}/${doc.elder_id}`);
       if (response.ok) {
@@ -379,12 +379,12 @@ app.delete('/documents/:docId', validateToken, async (req, res) => {
 
     // Access authorization check
     let allowed = false;
-    const { userId, role } = req.user;
+    const { id: userId, role } = req.user;
     if (role === 'SUPER_ADMIN' || role === 'ADMIN') {
       allowed = true;
-    } else if (role === 'ELDER') {
+    } else if (role === 'USER' || role === 'ELDER') {
       allowed = String(userId) === String(doc.elder_id);
-    } else if (role === 'FAMILY') {
+    } else if (role === 'CAREGIVER' || role === 'FAMILY') {
       const authServiceUrl = process.env.AUTH_SERVICE_URL || 'http://auth-service:3000';
       const response = await fetch(`${authServiceUrl}/links/verify/${userId}/${doc.elder_id}`);
       if (response.ok) {

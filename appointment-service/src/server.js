@@ -3,7 +3,7 @@ const { Pool } = require('pg');
 const cors = require('cors');
 const { EventBridgeClient, PutEventsCommand } = require('@aws-sdk/client-eventbridge');
 const { SchedulerClient, CreateScheduleCommand, DeleteScheduleCommand } = require('@aws-sdk/client-scheduler');
-const { validateToken, checkRelationship } = require('./authMiddleware');
+const { validateToken, checkRelationship, requirePermission, PERMISSIONS, logAuditEvent } = require('./authMiddleware');
 
 const app = express();
 app.use(cors());
@@ -301,10 +301,10 @@ app.put('/appointments/:id', validateToken, async (req, res) => {
 
     if (req.user.role === 'SUPER_ADMIN' || req.user.role === 'ADMIN') {
       allowed = true;
-    } else if (req.user.role === 'ELDER') {
-      allowed = String(req.user.userId) === String(appt.elder_id);
-    } else if (req.user.role === 'FAMILY') {
-      const response = await fetch(`${authServiceUrl}/links/verify/${req.user.userId}/${appt.elder_id}`);
+    } else if (req.user.role === 'USER' || req.user.role === 'ELDER') {
+      allowed = String(req.user.id || req.user.userId) === String(appt.elder_id);
+    } else if (req.user.role === 'CAREGIVER' || req.user.role === 'FAMILY') {
+      const response = await fetch(`${authServiceUrl}/links/verify/${req.user.id || req.user.userId}/${appt.elder_id}`);
       if (response.ok) {
         const data = await response.json();
         allowed = data.linked;
@@ -449,7 +449,7 @@ app.put('/appointments/:id/missed', validateToken, async (req, res) => {
 });
 
 // Doctor Directory endpoints
-app.post('/doctors', validateToken, async (req, res) => {
+app.post('/doctors', validateToken, requirePermission(PERMISSIONS.APPOINTMENT_MANAGE), async (req, res) => {
   try {
     const { name, email, phone, hospitalId, specialization, location, availability } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
@@ -458,6 +458,13 @@ app.post('/doctors', validateToken, async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [name, email || null, phone || null, hospitalId || null, specialization || null, location || null, availability ? JSON.stringify(availability) : '[]']
     );
+    logAuditEvent(req, {
+      actionType: 'CREATE_DOCTOR',
+      resource: 'doctors',
+      resourceId: result.rows[0].id,
+      status: 'SUCCESS',
+      message: `Created doctor: ${name}`
+    });
     res.status(201).json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -474,7 +481,7 @@ app.get('/doctors', validateToken, async (req, res) => {
 });
 
 // Hospital directory endpoints
-app.post('/hospitals', validateToken, async (req, res) => {
+app.post('/hospitals', validateToken, requirePermission(PERMISSIONS.APPOINTMENT_MANAGE), async (req, res) => {
   try {
     const { name, address, phone } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
@@ -482,6 +489,13 @@ app.post('/hospitals', validateToken, async (req, res) => {
       'INSERT INTO hospitals (name, address, phone) VALUES ($1, $2, $3) RETURNING *',
       [name, address || null, phone || null]
     );
+    logAuditEvent(req, {
+      actionType: 'CREATE_HOSPITAL',
+      resource: 'hospitals',
+      resourceId: result.rows[0].id,
+      status: 'SUCCESS',
+      message: `Created hospital: ${name}`
+    });
     res.status(201).json(result.rows[0]);
   } catch (error) {
     res.status(500).json({ error: error.message });

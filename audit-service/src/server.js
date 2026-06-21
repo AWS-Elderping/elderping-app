@@ -1,7 +1,7 @@
 const express = require('express');
 const { Pool } = require('pg');
 const cors = require('cors');
-const { validateToken, requireRole } = require('./authMiddleware');
+const { validateToken, requireAnyRole } = require('./authMiddleware');
 
 const app = express();
 app.use(cors());
@@ -53,8 +53,8 @@ app.post('/audit', validateToken, async (req, res) => {
   }
 });
 
-// Fetch Audit logs (Restricted to SUPER_ADMIN)
-app.get('/audit', validateToken, requireRole(['SUPER_ADMIN']), async (req, res) => {
+// Fetch Audit logs (Restricted to ADMIN or SUPER_ADMIN)
+app.get('/audit', validateToken, requireAnyRole(['ADMIN', 'SUPER_ADMIN']), async (req, res) => {
   try {
     const result = await pool.query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100');
     res.json(result.rows);

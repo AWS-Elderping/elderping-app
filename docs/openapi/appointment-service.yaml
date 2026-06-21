@@ -1,0 +1,113 @@
+openapi: 3.0.3
+info:
+  title: ElderPing Appointment Service API
+  description: Management of medical appointments, doctor directories, and clinic / hospital records.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3003
+    description: Local development reverse proxy port
+paths:
+  /appointments:
+    post:
+      summary: Book a new medical appointment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                elderId:
+                  type: string
+                doctorName:
+                  type: string
+                clinicName:
+                  type: string
+                scheduledAt:
+                  type: string
+                  format: date-time
+              required:
+                - elderId
+                - doctorName
+                - scheduledAt
+      responses:
+        '201':
+          description: Appointment booked successfully
+        '403':
+          description: Forbidden - Caregiver relationship not verified
+
+  /appointments/elder/{elderId}:
+    get:
+      summary: Get appointments list for an elder
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: elderId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of appointments
+
+  /doctors:
+    post:
+      summary: Add a doctor to the directory (ADMIN/SUPER_ADMIN only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                specialization:
+                  type: string
+                location:
+                  type: string
+              required:
+                - name
+      responses:
+        '201':
+          description: Doctor created successfully
+        '403':
+          description: Forbidden - Operational admin credentials required
+
+  /hospitals:
+    post:
+      summary: Add a hospital to the directory (ADMIN/SUPER_ADMIN only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                address:
+                  type: string
+                phone:
+                  type: string
+              required:
+                - name
+      responses:
+        '201':
+          description: Hospital created successfully
+        '403':
+          description: Forbidden
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

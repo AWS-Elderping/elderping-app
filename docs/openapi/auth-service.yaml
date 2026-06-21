@@ -1,0 +1,144 @@
+openapi: 3.0.3
+info:
+  title: ElderPing Auth Service API
+  description: User registry, OIDC linking association, emergency contacts, consents, and administration user management.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3001
+    description: Local development reverse proxy port
+paths:
+  /register:
+    post:
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                email:
+                  type: string
+                role:
+                  type: string
+                  enum: [SUPER_ADMIN, ADMIN, CAREGIVER, USER, FAMILY, ELDER]
+              required:
+                - username
+                - password
+      responses:
+        '201':
+          description: User registered successfully
+        '400':
+          description: Validation error
+        '409':
+          description: Username or Email already exists
+
+  /login:
+    post:
+      summary: Login and receive JWT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+              required:
+                - username
+                - password
+      responses:
+        '200':
+          description: Login successful
+        '401':
+          description: Invalid username or password
+
+  /me:
+    get:
+      summary: Retrieve current authenticated user profile
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User profile details
+        '401':
+          description: Unauthorized
+
+  /admin/users:
+    get:
+      summary: List all users (ADMIN/SUPER_ADMIN only)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of all users
+        '403':
+          description: Forbidden - Insufficient permissions
+
+  /admin/users/{id}/role:
+    patch:
+      summary: Update user role (ADMIN/SUPER_ADMIN only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  type: string
+                  enum: [SUPER_ADMIN, ADMIN, CAREGIVER, USER, FAMILY, ELDER]
+      responses:
+        '200':
+          description: Role updated successfully
+        '403':
+          description: Forbidden
+
+  /admin/users/{id}/status:
+    patch:
+      summary: Update user status (ADMIN/SUPER_ADMIN only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [ACTIVE, SUSPENDED, INACTIVE]
+      responses:
+        '200':
+          description: Status updated successfully
+        '403':
+          description: Forbidden
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

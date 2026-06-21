@@ -1,9 +1,10 @@
-﻿# Stage 1: Build
+# Stage 1: Build
 FROM node:18-alpine AS build
 WORKDIR /usr/src/app
-COPY package*.json ./
+COPY $service/package*.json ./
 RUN npm install --omit=dev
-COPY src ./src
+COPY $service/src ./src
+COPY shared/auth ./shared/auth
 
 # Stage 2: Production
 FROM node:18-alpine AS production
@@ -12,8 +13,8 @@ WORKDIR /usr/src/app
 USER node
 COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules
 COPY --chown=node:node --from=build /usr/src/app/src ./src
-COPY --chown=node:node package.json ./
+COPY --chown=node:node --from=build /usr/src/app/shared ./shared
+COPY --chown=node:node $service/package.json ./
 
 EXPOSE 3000
 CMD ["npm", "start"]
-

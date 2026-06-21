@@ -1,0 +1,67 @@
+openapi: 3.0.3
+info:
+  title: ElderPing Notification Service API
+  description: Handles notification delivery, alerts preferences, and notification delivery history logs.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3004
+    description: Local development reverse proxy port
+paths:
+  /notifications/trigger:
+    post:
+      summary: Trigger sending a notification alert
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: string
+                type:
+                  type: string
+                payload:
+                  type: object
+              required:
+                - userId
+                - type
+                - payload
+      responses:
+        '200':
+          description: Dispatch completed successfully
+
+  /notifications/logs:
+    get:
+      summary: Retrieve sent notifications history logs (ADMIN/SUPER_ADMIN only)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Log lists
+        '403':
+          description: Forbidden
+
+  /notifications/preferences/{userId}:
+    get:
+      summary: Retrieve user notification preferences settings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User notification preferences settings details
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

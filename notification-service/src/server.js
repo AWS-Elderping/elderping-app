@@ -4,7 +4,7 @@ const cors = require('cors');
 const { SESClient, SendEmailCommand } = require('@aws-sdk/client-ses');
 const { SNSClient, PublishCommand } = require('@aws-sdk/client-sns');
 const { SQSClient, ReceiveMessageCommand, DeleteMessageCommand } = require('@aws-sdk/client-sqs');
-const { validateToken, checkRelationship } = require('./authMiddleware');
+const { validateToken, checkRelationship, requireAnyRole } = require('./authMiddleware');
 
 const app = express();
 app.use(cors());
@@ -245,10 +245,7 @@ app.post('/notifications/trigger', validateToken, checkRelationship('userId'), a
 });
 
 // Admin visibility logs endpoint
-app.get('/notifications/logs', validateToken, async (req, res) => {
-  if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPER_ADMIN') {
-    return res.status(403).json({ error: 'Forbidden: Admin access required' });
-  }
+app.get('/notifications/logs', validateToken, requireAnyRole(['ADMIN', 'SUPER_ADMIN']), async (req, res) => {
   try {
     const limit = Math.min(parseInt(req.query.limit, 10) || 50, 100);
     const offset = parseInt(req.query.offset, 10) || 0;

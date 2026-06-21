@@ -1,0 +1,74 @@
+openapi: 3.0.3
+info:
+  title: ElderPing FinOps Service API
+  description: Cloud cost aggregation and AI-based cost recommendations (SUPER_ADMIN only).
+  version: 1.0.0
+servers:
+  - url: http://localhost:3006
+    description: Local development reverse proxy port
+paths:
+  /finops/dashboard:
+    get:
+      summary: Fetch cost explorer summary and history trends (SUPER_ADMIN only)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Cost explorer summary dashboard details
+        '403':
+          description: Forbidden - Exclusive to SUPER_ADMIN role
+
+  /finops/recommendations:
+    get:
+      summary: Fetch pending cost optimization recommendations (SUPER_ADMIN only)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Recommendations lists
+
+  /finops/recommendations/{id}/apply:
+    post:
+      summary: Mark recommendation as applied (SUPER_ADMIN only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Applied successfully
+
+  /finops/costs:
+    post:
+      summary: Record daily cost metrics logs (SUPER_ADMIN only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                billingDate:
+                  type: string
+                  format: date
+                total:
+                  type: number
+              required:
+                - billingDate
+                - total
+      responses:
+        '201':
+          description: Cost logged successfully
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

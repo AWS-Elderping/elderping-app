@@ -90,11 +90,11 @@ app.put('/reminders/:id/take', validateToken, async (req, res) => {
 
     if (req.user.role === 'SUPER_ADMIN' || req.user.role === 'ADMIN') {
       allowed = true;
-    } else if (req.user.role === 'ELDER') {
-      allowed = String(req.user.userId) === String(reminder.user_id);
-    } else if (req.user.role === 'FAMILY') {
+    } else if (req.user.role === 'USER' || req.user.role === 'ELDER') {
+      allowed = String(req.user.id || req.user.userId) === String(reminder.user_id);
+    } else if (req.user.role === 'CAREGIVER' || req.user.role === 'FAMILY') {
       const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
-      const response = await fetch(`${authServiceUrl}/links/verify/${req.user.userId}/${reminder.user_id}`);
+      const response = await fetch(`${authServiceUrl}/links/verify/${req.user.id || req.user.userId}/${reminder.user_id}`);
       if (response.ok) {
         const data = await response.json();
         allowed = data.linked;

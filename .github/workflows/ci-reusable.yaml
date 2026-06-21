@@ -92,7 +92,8 @@ jobs:
           ECR_REPOSITORY: elderpinq-${{ inputs.environment }}-${{ inputs.service_name }}
           IMAGE_TAG: ${{ steps.get-tag.outputs.image_tag }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG ${{ inputs.service_path }}
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f ${{ inputs.service_path }}/Dockerfile .
+
 
       - name: Vulnerability Scan Image (Trivy)
         env:

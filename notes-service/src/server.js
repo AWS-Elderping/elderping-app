@@ -40,7 +40,7 @@ app.post('/notes', validateToken, checkRelationship('userId'), async (req, res) 
   try {
     const { userId, elderId, category, content } = req.body;
     const targetId = elderId || userId;
-    const authorId = req.user.userId;
+    const authorId = req.user.id || req.user.userId;
 
     if (!targetId || !category || !content) {
       return res.status(400).json({ error: 'elderId (or userId), category, and content are required' });
@@ -177,7 +177,7 @@ app.put('/notes/:id', validateToken, async (req, res) => {
     let allowed = false;
     if (req.user.role === 'SUPER_ADMIN' || req.user.role === 'ADMIN') {
       allowed = true;
-    } else if (String(req.user.userId) === String(note.author_id)) {
+    } else if (String(req.user.id || req.user.userId) === String(note.author_id)) {
       allowed = true;
     }
 
@@ -231,7 +231,7 @@ app.delete('/notes/:id', validateToken, async (req, res) => {
     let allowed = false;
     if (req.user.role === 'SUPER_ADMIN' || req.user.role === 'ADMIN') {
       allowed = true;
-    } else if (String(req.user.userId) === String(note.author_id)) {
+    } else if (String(req.user.id || req.user.userId) === String(note.author_id)) {
       allowed = true;
     }
 
@@ -254,7 +254,7 @@ app.delete('/notes/:id', validateToken, async (req, res) => {
 app.post('/notes/ai', validateToken, checkRelationship('elderId'), async (req, res) => {
   try {
     const { elderId, content, vitals } = req.body;
-    const authorId = req.user.userId;
+    const authorId = req.user.id || req.user.userId;
 
     if (!elderId) {
       return res.status(400).json({ error: 'elderId is required' });

@@ -1,0 +1,55 @@
+openapi: 3.0.3
+info:
+  title: ElderPing Audit Service API
+  description: Platform audit trail logging and visibility.
+  version: 1.0.0
+servers:
+  - url: http://localhost:3005
+    description: Local development reverse proxy port
+paths:
+  /audit:
+    post:
+      summary: Write a new audit log entry
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                actionType:
+                  type: string
+                resource:
+                  type: string
+                resourceId:
+                  type: string
+                status:
+                  type: string
+                message:
+                  type: string
+              required:
+                - actionType
+                - resource
+                - status
+      responses:
+        '201':
+          description: Log created successfully
+
+    get:
+      summary: Retrieve all platform audit logs (ADMIN/SUPER_ADMIN only)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List of audit logs
+        '403':
+          description: Forbidden
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

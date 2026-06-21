@@ -26,7 +26,8 @@ services:
   # ==================================
   auth-service:
     build:
-      context: ./auth-service
+      context: .
+      dockerfile: auth-service/Dockerfile
       target: production
     ports:
       - "3001:3000"
@@ -47,7 +48,8 @@ services:
 
   health-service:
     build:
-      context: ./health-service
+      context: .
+      dockerfile: health-service/Dockerfile
       target: production
     ports:
       - "3002:3000"
@@ -67,7 +69,8 @@ services:
 
   reminder-service:
     build:
-      context: ./reminder-service
+      context: .
+      dockerfile: reminder-service/Dockerfile
       target: production
     ports:
       - "3003:3000"
@@ -87,7 +90,8 @@ services:
 
   alert-service:
     build:
-      context: ./alert-service
+      context: .
+      dockerfile: alert-service/Dockerfile
       target: production
     ports:
       - "3004:3000"
