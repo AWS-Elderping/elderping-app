@@ -4,14 +4,18 @@ on:
   push:
     branches:
       - main
-      - 'release/*'
+      - develop
+      - 'feature/**'
     tags:
       - 'v*'
     paths-ignore:
       - 'helm/**'
       - 'argocd-apps/**'
       - 'infrastructure/**'
-      - '.github/**'
+  pull_request:
+    branches:
+      - main
+      - develop
 permissions:
   contents: write
   id-token: write
