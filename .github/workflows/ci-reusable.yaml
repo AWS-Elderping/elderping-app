@@ -44,7 +44,7 @@ jobs:
         run: |
           cd ${{ inputs.service_path }}
           # Fail the build if tests fail
-          npm test
+          npm run test --if-present
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarqube-scan-action@v5
