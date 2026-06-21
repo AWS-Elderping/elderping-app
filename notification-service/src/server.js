@@ -169,6 +169,8 @@ app.post('/notifications/trigger', validateToken, checkRelationship('userId'), a
 let isPollingActive = true;
 const queueUrl = process.env.SQS_QUEUE_URL;
 
+const shouldContinuePolling = () => isPollingActive;
+
 async function processQueueMessage(body) {
   console.log('📬 SQS Message received:', JSON.stringify(body));
   let type = null;
@@ -218,7 +220,7 @@ async function startSQSPoller() {
   }
 
   console.log(`🚀 Starting SQS Polling Worker for queue: ${queueUrl}`);
-  while (isPollingActive) {
+  while (shouldContinuePolling()) {
     try {
       const command = new ReceiveMessageCommand({
         QueueUrl: queueUrl,
