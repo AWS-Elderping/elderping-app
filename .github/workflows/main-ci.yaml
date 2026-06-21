@@ -83,6 +83,9 @@ jobs:
   frontend:
     needs: detect-changes
     if: needs.detect-changes.outputs.frontend == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: frontend
@@ -93,6 +96,9 @@ jobs:
   auth-service:
     needs: detect-changes
     if: needs.detect-changes.outputs.auth-service == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: auth-service
@@ -103,6 +109,9 @@ jobs:
   health-service:
     needs: detect-changes
     if: needs.detect-changes.outputs.health-service == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: health-service
@@ -113,6 +122,9 @@ jobs:
   reminder-service:
     needs: detect-changes
     if: needs.detect-changes.outputs.reminder-service == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: reminder-service
@@ -123,6 +135,9 @@ jobs:
   alert-service:
     needs: detect-changes
     if: needs.detect-changes.outputs.alert-service == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: alert-service
@@ -133,6 +148,9 @@ jobs:
   appointment-service:
     needs: detect-changes
     if: needs.detect-changes.outputs.appointment-service == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: appointment-service
@@ -143,6 +161,9 @@ jobs:
   notes-service:
     needs: detect-changes
     if: needs.detect-changes.outputs.notes-service == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: notes-service
@@ -153,6 +174,9 @@ jobs:
   ai-service:
     needs: detect-changes
     if: needs.detect-changes.outputs.ai-service == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: ai-service
@@ -163,6 +187,9 @@ jobs:
   report-service:
     needs: detect-changes
     if: needs.detect-changes.outputs.report-service == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: report-service
@@ -173,6 +200,9 @@ jobs:
   notification-service:
     needs: detect-changes
     if: needs.detect-changes.outputs.notification-service == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: notification-service
@@ -183,6 +213,9 @@ jobs:
   audit-service:
     needs: detect-changes
     if: needs.detect-changes.outputs.audit-service == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: audit-service
@@ -193,6 +226,9 @@ jobs:
   finops-service:
     needs: detect-changes
     if: needs.detect-changes.outputs.finops-service == 'true'
+    permissions:
+      contents: write
+      id-token: write
     uses: ./.github/workflows/ci-reusable.yaml
     with:
       service_name: finops-service
