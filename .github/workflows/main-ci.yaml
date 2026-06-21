@@ -12,7 +12,9 @@ on:
       - 'argocd-apps/**'
       - 'infrastructure/**'
       - '.github/**'
-      - 'README.md'
+permissions:
+  contents: write
+  id-token: write
 
 jobs:
   detect-changes:
