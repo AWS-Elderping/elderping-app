@@ -26,6 +26,9 @@ jobs:
       SERVICE_NAME: ${{ inputs.service_name }}
       SERVICE_PATH: ${{ inputs.service_path }}
       ENVIRONMENT: ${{ inputs.environment }}
+      GITHUB_REF: ${{ github.ref }}
+      GITHUB_REF_NAME: ${{ github.ref_name }}
+      GITHUB_SHA: ${{ github.sha }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v3
@@ -82,10 +85,10 @@ jobs:
       - name: Determine Image Tag
         id: get-tag
         run: |
-          if [[ "${{ github.ref }}" =~ ^refs/tags/v ]]; then
-            CLEAN_TAG="${{ github.ref_name }}"
+          if [[ "$GITHUB_REF" =~ ^refs/tags/v ]]; then
+            CLEAN_TAG="$GITHUB_REF_NAME"
           else
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
             CLEAN_TAG="sha-${SHORT_SHA}"
           fi
           echo "image_tag=${CLEAN_TAG}" >> $GITHUB_OUTPUT
@@ -96,7 +99,7 @@ jobs:
           ECR_REPOSITORY: elderpinq-${{ inputs.environment }}-${{ inputs.service_name }}
           IMAGE_TAG: ${{ steps.get-tag.outputs.image_tag }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f "$SERVICE_PATH/Dockerfile" .
+          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" -f "$SERVICE_PATH/Dockerfile" .
 
 
       - name: Vulnerability Scan Image (Trivy)
@@ -106,7 +109,7 @@ jobs:
           IMAGE_TAG: ${{ steps.get-tag.outputs.image_tag }}
         run: |
           # Fail pipeline on high or critical findings in compiled image
-          trivy image --exit-code 1 --severity CRITICAL $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          trivy image --exit-code 1 --severity CRITICAL "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
       - name: Push Image to ECR
         env:
@@ -114,27 +117,27 @@ jobs:
           ECR_REPOSITORY: elderpinq-${{ inputs.environment }}-${{ inputs.service_name }}
           IMAGE_TAG: ${{ steps.get-tag.outputs.image_tag }}
         run: |
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
       - name: Update Helm Chart Values (GitOps)
         env:
           IMAGE_TAG: ${{ steps.get-tag.outputs.image_tag }}
-          GITOPS_PAT: ${{ secrets.GITOPS_PAT }}
+          GITOPS_PAT: ${{ secrets.GITOPS_PAT || secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.name "gitops-bot"
           git config --global user.email "gitops@elderpinq.com"
           
           # Clone the separate GitOps repository
-          git clone https://x-access-token:${{ secrets.GITOPS_PAT || secrets.GITHUB_TOKEN }}@github.com/AWS-Elderping/elderping-gitops.git gitops-repo
+          git clone "https://x-access-token:$GITOPS_PAT@github.com/AWS-Elderping/elderping-gitops.git" gitops-repo
           cd gitops-repo
           
           # Target environments/<env>/<service>-values.yaml
           TARGET_FILE="environments/$ENVIRONMENT/$SERVICE_NAME-values.yaml"
           
           if [ -f "$TARGET_FILE" ]; then
-            sed -i "s/tag: .*/tag: \"${IMAGE_TAG}\"/g" "$TARGET_FILE"
+            sed -i "s/tag: .*/tag: \"$IMAGE_TAG\"/g" "$TARGET_FILE"
             git add "$TARGET_FILE"
-            git commit -m "Auto-bump: $SERVICE_NAME image tag to ${IMAGE_TAG} for $ENVIRONMENT [skip ci]"
+            git commit -m "Auto-bump: $SERVICE_NAME image tag to $IMAGE_TAG for $ENVIRONMENT [skip ci]"
             git push origin main
           else
             echo "Warning: Target file $TARGET_FILE not found in GitOps repository. Skipping auto-bump."
