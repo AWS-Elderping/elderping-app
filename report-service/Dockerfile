@@ -12,9 +12,8 @@ FROM node:18-alpine AS production
 ARG service
 WORKDIR /usr/src/app
 RUN apk update && apk upgrade --no-cache
-# Copy shared/auth to both locations to satisfy relative imports from different file depths
-COPY --chown=node:node --from=build /usr/src/app/shared /usr/src/shared
 COPY --chown=node:node --from=build /usr/src/app/shared ./shared
+RUN ln -s /usr/src/app/shared /usr/src/shared
 # Set non-root user
 USER node
 COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules
