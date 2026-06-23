@@ -10,10 +10,18 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Liveness probe
+// Liveness probe (must be before path-rewrite middleware)
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'finops-service' }));
 app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'finops-service' }));
 app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'finops-service' }));
+
+// K8s ALB path prefix compatibility: strip /api/finops prefix
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/finops')) {
+    req.url = req.url.replace('/api/finops', '') || '/';
+  }
+  next();
+});
 
 // Mount modular routes under /finops
 app.use('/finops', finopsRoutes);

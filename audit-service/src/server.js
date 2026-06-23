@@ -15,7 +15,7 @@ app.use(express.json());
 // Enable default system metrics collection (CPU, Memory, GC metrics)
 client.collectDefaultMetrics();
 
-// Liveness probe
+// Liveness probe (must be before path-rewrite middleware)
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'audit-service' }));
 app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'audit-service' }));
 app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'audit-service' }));
@@ -28,6 +28,14 @@ app.get('/metrics', async (req, res) => {
   } catch (err) {
     res.status(500).end(err.message);
   }
+});
+
+// K8s ALB path prefix compatibility: strip /api/audit prefix
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/audit')) {
+    req.url = req.url.replace('/api/audit', '') || '/';
+  }
+  next();
 });
 
 // Mount modular audit endpoints under /audit

@@ -16,10 +16,18 @@ const pool = new Pool({
   database: process.env.DB_NAME,
 });
 
-// Liveness probe
+// Liveness probe (must be before path-rewrite middleware)
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'ai-service' }));
 app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'ai-service' }));
 app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'ai-service' }));
+
+// K8s ALB path prefix compatibility: strip /api/ai prefix
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/ai')) {
+    req.url = req.url.replace('/api/ai', '') || '/';
+  }
+  next();
+});
 
 // Helper to invoke provider via registry
 async function generateAIResponse(prompt, capability, modelId) {

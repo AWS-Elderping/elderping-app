@@ -17,7 +17,7 @@ app.use(express.json());
 // Enable default system metrics collection
 client.collectDefaultMetrics();
 
-// Liveness probe
+// Liveness probe (must be before path-rewrite middleware)
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'notification-service' }));
 app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'notification-service' }));
 app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'notification-service' }));
@@ -30,6 +30,14 @@ app.get('/metrics', async (req, res) => {
   } catch (err) {
     res.status(500).end(err.message);
   }
+});
+
+// K8s ALB path prefix compatibility: strip /api/notifications prefix
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/notifications') || req.url.startsWith('/api/notification')) {
+    req.url = req.url.replace(/^\/api\/notification[s]?/, '') || '/';
+  }
+  next();
 });
 
 // Mount modular endpoints under /notifications

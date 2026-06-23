@@ -27,10 +27,18 @@ try {
   console.log('⚠️ S3 Client could not initialize. Operating in mock mode.', err.message);
 }
 
-// Liveness probe
+// Liveness probe (must be before path-rewrite middleware)
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'report-service' }));
 app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'report-service' }));
 app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'report-service' }));
+
+// K8s ALB path prefix compatibility: strip /api/reports prefix
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/reports') || req.url.startsWith('/api/report')) {
+    req.url = req.url.replace(/^\/api\/report[s]?/, '') || '/';
+  }
+  next();
+});
 
 // Helper to fetch microservices telemetry
 async function fetchServiceData(url, token) {

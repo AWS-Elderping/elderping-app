@@ -24,7 +24,9 @@ app.get('/ready', (req, res) =>
 );
 
 // Mount modular auth routes
+// Serve at both '/' (local/nginx proxy strips prefix) and '/api/auth' (K8s ALB passes full path)
 app.use('/', authRoutes);
+app.use('/api/auth', authRoutes);
 
 // ──────────────────────────────────────────────
 // SEED — creates demo users if the table is empty

@@ -37,7 +37,7 @@ const logAudit = async (req, actionType, resource, resourceId, status, message) 
   }
 };
 
-// Liveness probe
+// Liveness probe (must be before path-rewrite middleware)
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', service: 'health-service' });
 });
@@ -46,6 +46,14 @@ app.get('/healthz', (req, res) => {
 });
 app.get('/ready', (req, res) => {
   res.status(200).json({ status: 'ok', service: 'health-service' });
+});
+
+// K8s ALB path prefix compatibility: strip /api/health prefix
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/health')) {
+    req.url = req.url.replace('/api/health', '') || '/';
+  }
+  next();
 });
 
 // Post an elder check-in

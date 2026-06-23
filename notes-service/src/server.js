@@ -32,12 +32,18 @@ const logAudit = async (req, actionType, resource, resourceId, status, message) 
   }
 };
 
-// Liveness probe
+// Liveness probe (must be before path-rewrite middleware)
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'notes-service' }));
 app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'notes-service' }));
 app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'notes-service' }));
 
-// Create a new note
+// K8s ALB path prefix compatibility: strip /api/notes prefix
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/notes')) {
+    req.url = req.url.replace('/api/notes', '') || '/';
+  }
+  next();
+});
 app.post('/notes', validateToken, checkRelationship('userId'), async (req, res) => {
   try {
     const { userId, elderId, category, content } = req.body;
