@@ -17,6 +17,15 @@ const User = {
     return result.rows[0];
   },
 
+  // Login by email OR username (case-insensitive email)
+  async findByEmailOrUsername(identifier) {
+    const result = await pool.query(
+      'SELECT * FROM users WHERE LOWER(email) = LOWER($1) OR LOWER(username) = LOWER($1)',
+      [identifier]
+    );
+    return result.rows[0];
+  },
+
   async findById(id) {
     const result = await pool.query(
       'SELECT id, username, email, role, status, invite_code, created_at FROM users WHERE id = $1',

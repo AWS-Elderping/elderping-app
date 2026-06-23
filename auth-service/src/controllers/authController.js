@@ -20,20 +20,38 @@ const register = async (req, res) => {
     const finalRole = (role || 'FAMILY').toUpperCase();
     const hashedPassword = await bcrypt.hash(password, 10);
     const inviteCode = finalRole === 'ELDER' ? crypto.randomBytes(3).toString('hex').toUpperCase() : null;
-    const userEmail = email || `${username}@elderpinq.com`;
+
+    // Support email-based registration: derive username from email if not provided
+    let finalEmail = email;
+    let finalUsername = username;
+    if (email && !username) {
+      // Username = part before '@', sanitized, with random suffix to avoid conflicts
+      const base = email.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+      finalUsername = base + '_' + Math.random().toString(36).slice(2, 6);
+    } else if (!email && username) {
+      // If username looks like an email, use it as both email and derive clean username
+      if (username.includes('@')) {
+        finalEmail = username;
+        const base = username.split('@')[0].replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+        finalUsername = base + '_' + Math.random().toString(36).slice(2, 6);
+      } else {
+        finalEmail = `${username}@elderpinq.com`;
+      }
+    }
 
     const user = await User.create({
-      username,
+      username: finalUsername,
       hashedPassword,
-      email: userEmail,
+      email: finalEmail,
       role: finalRole,
       inviteCode
     });
 
-    res.status(201).json(user);
+    // Return the actual username so the frontend knows what was registered
+    res.status(201).json({ ...user, registeredUsername: finalUsername });
   } catch (error) {
     if (error.code === '23505') {
-      return res.status(409).json({ error: 'Username or Email already exists' });
+      return res.status(409).json({ error: 'Email already registered. Please login.' });
     }
     res.status(500).json({ error: error.message });
   }
@@ -41,10 +59,12 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { username, password } = req.body;
-    const user = await User.findByUsername(username);
+    const { username, password, email } = req.body;
+    // Accept login by email OR username (email field or username field)
+    const identifier = email || username;
+    const user = await User.findByEmailOrUsername(identifier);
     if (!user) {
-      return res.status(401).json({ error: 'Invalid username or password' });
+      return res.status(401).json({ error: 'Invalid email/username or password' });
     }
     
     // Check user status

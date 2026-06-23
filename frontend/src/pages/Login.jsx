@@ -20,7 +20,8 @@ export default function Login() {
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        // Send as both fields — backend accepts email OR username
+        body: JSON.stringify({ username, email: username, password }),
       });
 
       let data;
@@ -101,16 +102,16 @@ export default function Login() {
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
               <label className="block text-xl font-semibold text-gray-700 mb-2" htmlFor="username">
-                Username
+                Email or Username
               </label>
               <input
                 id="username"
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your username"
+                placeholder="Enter your email or username"
                 required
-                autoComplete="username"
+                autoComplete="email"
                 className="w-full border-2 border-gray-300 rounded-xl px-5 py-4 text-xl text-gray-800 focus:outline-none focus:border-blue-600 transition-colors"
               />
             </div>

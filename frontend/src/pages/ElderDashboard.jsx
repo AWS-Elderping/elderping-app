@@ -46,7 +46,7 @@ export default function ElderDashboard() {
 
   // Redirect if not logged in or wrong role
   useEffect(() => {
-    if (!user || user.role !== 'elder') {
+    if (!user || (user.role || '').toUpperCase() !== 'ELDER') {
       navigate('/login', { replace: true });
     }
   }, []);

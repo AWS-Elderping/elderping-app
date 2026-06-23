@@ -50,7 +50,7 @@ export default function FamilyDashboard() {
 
   // Redirect if not logged in
   useEffect(() => {
-    if (!user || user.role !== 'family') navigate('/login', { replace: true });
+    if (!user || (user.role || '').toUpperCase() !== 'FAMILY') navigate('/login', { replace: true });
   }, []);
 
   const fetchElders = useCallback(async () => {
