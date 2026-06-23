@@ -143,24 +143,35 @@ jobs:
           TARGET_FILE="environments/$ENVIRONMENT/$SERVICE_NAME-values.yaml"
           
           if [ -f "$TARGET_FILE" ]; then
-            sed -i "s/tag: .*/tag: \"$IMAGE_TAG\"/g" "$TARGET_FILE"
-            git add "$TARGET_FILE"
-            git commit -m "Auto-bump: $SERVICE_NAME image tag to $IMAGE_TAG for $ENVIRONMENT [skip ci]"
-            
-            # Concurrency-safe push with retries and rebase
+            # Concurrency-safe push with retries and hard reset
             MAX_RETRIES=10
             RETRY_COUNT=0
             PUSH_SUCCESS=false
             
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-              # Rebase to fetch and apply our change on top of any concurrently pushed tags
-              git pull --rebase origin main
+              # Fetch latest remote state and discard local deviations
+              git fetch origin main
+              git reset --hard origin/main
+              
+              # Apply our tag replacement on the fresh remote state
+              sed -i "s/tag: .*/tag: \"$IMAGE_TAG\"/g" "$TARGET_FILE"
+              git add "$TARGET_FILE"
+              
+              # Commit only if there are actual diffs
+              if ! git diff --cached --quiet; then
+                git commit -m "Auto-bump: $SERVICE_NAME image tag to $IMAGE_TAG for $ENVIRONMENT [skip ci]"
+              else
+                echo "No tag changes detected (already set to $IMAGE_TAG). Skipping push."
+                PUSH_SUCCESS=true
+                break
+              fi
+              
               if git push origin main; then
                 PUSH_SUCCESS=true
                 break
               fi
+              
               RETRY_COUNT=$((RETRY_COUNT+1))
-              # Wait with exponential backoff plus jitter
               WAIT_TIME=$((RETRY_COUNT * 2 + RANDOM % 3))
               echo "Push rejected or failed. Retrying in $WAIT_TIME seconds (Attempt $((RETRY_COUNT+1))/$MAX_RETRIES)..."
               sleep $WAIT_TIME
