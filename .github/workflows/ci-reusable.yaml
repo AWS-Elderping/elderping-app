@@ -78,6 +78,17 @@ jobs:
           sudo apt-get update
           sudo apt-get install trivy -y
 
+      - name: Debug AWS Role ARN
+        env:
+          ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+        run: |
+          if [ -z "$ACCOUNT_ID" ]; then
+            echo "AWS_ACCOUNT_ID is EMPTY!"
+          else
+            echo "AWS_ACCOUNT_ID has length: ${#ACCOUNT_ID}"
+            echo "AWS_ACCOUNT_ID format: [$(echo -n "$ACCOUNT_ID" | sed 's/[0-9]/x/g')]"
+          fi
+
       - name: Configure AWS Credentials (OIDC Federation)
         uses: aws-actions/configure-aws-credentials@v3
         with:
