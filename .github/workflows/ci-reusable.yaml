@@ -81,7 +81,7 @@ jobs:
       - name: Configure AWS Credentials (OIDC Federation)
         uses: aws-actions/configure-aws-credentials@v3
         with:
-          role-to-assume: arn:aws:iam::462355914183:role/elderpinq-${{ inputs.environment }}-github-actions-role
+          role-to-assume: arn:aws:iam://${{ secrets.AWS_ACCOUNT_ID }}:role/elderpinq-${{ inputs.environment }}-github-actions-role
           aws-region: us-east-1
 
       - name: Login to Amazon ECR
@@ -105,7 +105,7 @@ jobs:
           ECR_REPOSITORY: elderpinq-${{ inputs.environment }}-${{ inputs.service_name }}
           IMAGE_TAG: ${{ steps.get-tag.outputs.image_tag }}
         run: |
-          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" -f "$SERVICE_PATH/Dockerfile" .
+          docker build --build-arg service="$SERVICE_PATH" -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" -f "$SERVICE_PATH/Dockerfile" .
 
 
       - name: Vulnerability Scan Image (Trivy)

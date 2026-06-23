@@ -34,6 +34,8 @@ const logAudit = async (req, actionType, resource, resourceId, status, message) 
 
 // Liveness probe
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'notes-service' }));
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'notes-service' }));
+app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'notes-service' }));
 
 // Create a new note
 app.post('/notes', validateToken, checkRelationship('userId'), async (req, res) => {

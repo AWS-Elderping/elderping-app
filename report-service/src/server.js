@@ -29,6 +29,8 @@ try {
 
 // Liveness probe
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'report-service' }));
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'report-service' }));
+app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'report-service' }));
 
 // Helper to fetch microservices telemetry
 async function fetchServiceData(url, token) {

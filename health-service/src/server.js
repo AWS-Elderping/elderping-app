@@ -41,6 +41,12 @@ const logAudit = async (req, actionType, resource, resourceId, status, message) 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', service: 'health-service' });
 });
+app.get('/healthz', (req, res) => {
+  res.status(200).json({ status: 'ok', service: 'health-service' });
+});
+app.get('/ready', (req, res) => {
+  res.status(200).json({ status: 'ok', service: 'health-service' });
+});
 
 // Post an elder check-in
 app.post('/checkin', validateToken, checkRelationship('userId'), async (req, res) => {

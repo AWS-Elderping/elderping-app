@@ -1,5 +1,6 @@
 # Stage 1: Build
 FROM node:18-alpine AS build
+ARG service
 WORKDIR /usr/src/app
 COPY $service/package*.json ./
 RUN npm install --omit=dev
@@ -8,6 +9,7 @@ COPY shared/auth ./shared/auth
 
 # Stage 2: Production
 FROM node:18-alpine AS production
+ARG service
 WORKDIR /usr/src/app
 # Set non-root user
 USER node

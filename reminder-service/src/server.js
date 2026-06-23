@@ -35,6 +35,8 @@ const logAudit = async (req, actionType, resource, resourceId, status, message) 
 
 // Liveness probe
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'reminder-service' }));
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'reminder-service' }));
+app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'reminder-service' }));
 
 // Add new medication reminder
 app.post('/reminders', validateToken, checkRelationship('userId'), async (req, res) => {

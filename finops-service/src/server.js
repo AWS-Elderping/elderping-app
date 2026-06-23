@@ -12,6 +12,8 @@ app.use(express.json());
 
 // Liveness probe
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'finops-service' }));
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'finops-service' }));
+app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'finops-service' }));
 
 // Mount modular routes under /finops
 app.use('/finops', finopsRoutes);

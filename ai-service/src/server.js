@@ -18,6 +18,8 @@ const pool = new Pool({
 
 // Liveness probe
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'ai-service' }));
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'ai-service' }));
+app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'ai-service' }));
 
 // Helper to invoke provider via registry
 async function generateAIResponse(prompt, capability, modelId) {

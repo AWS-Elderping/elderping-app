@@ -17,6 +17,8 @@ const pool = new Pool({
 
 // Liveness probe
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'alert-service' }));
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'alert-service' }));
+app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'alert-service' }));
 
 // Log internal alert/emergency (typically invoked by backend rules or user triggers)
 app.post('/alerts', validateToken, async (req, res) => {

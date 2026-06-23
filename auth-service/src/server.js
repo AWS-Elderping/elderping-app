@@ -16,6 +16,12 @@ app.use(express.json());
 app.get('/health', (req, res) =>
   res.status(200).json({ status: 'ok', service: 'auth-service' })
 );
+app.get('/healthz', (req, res) =>
+  res.status(200).json({ status: 'ok', service: 'auth-service' })
+);
+app.get('/ready', (req, res) =>
+  res.status(200).json({ status: 'ok', service: 'auth-service' })
+);
 
 // Mount modular auth routes
 app.use('/', authRoutes);

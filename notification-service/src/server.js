@@ -19,6 +19,8 @@ client.collectDefaultMetrics();
 
 // Liveness probe
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'notification-service' }));
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'notification-service' }));
+app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'notification-service' }));
 
 // Prometheus metrics endpoint
 app.get('/metrics', async (req, res) => {
