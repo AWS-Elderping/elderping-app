@@ -76,11 +76,11 @@ jobs:
         id: env
         run: |
           if [ "${{ github.ref_name }}" = "main" ] || [ "${{ github.ref_name }}" = "develop" ] || [[ "${{ github.ref_name }}" =~ ^feature/ ]]; then
-            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "environment=dev" | tr -d '\r' >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" =~ ^refs/tags/v ]]; then
-            echo "environment=prod" >> $GITHUB_OUTPUT
+            echo "environment=prod" | tr -d '\r' >> $GITHUB_OUTPUT
           else
-            echo "environment=dev" >> $GITHUB_OUTPUT
+            echo "environment=dev" | tr -d '\r' >> $GITHUB_OUTPUT
           fi
 
   # Call reusable workflow for modified services

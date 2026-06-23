@@ -87,6 +87,12 @@ jobs:
           else
             echo "AWS_ACCOUNT_ID has length: ${#ACCOUNT_ID}"
             echo "AWS_ACCOUNT_ID format: [$(echo -n "$ACCOUNT_ID" | sed 's/[0-9]/x/g')]"
+            
+            ROLE_ARN="arn:aws:iam://${{ secrets.AWS_ACCOUNT_ID }}:role/elderpinq-${{ inputs.environment }}-github-actions-role"
+            echo "ROLE_ARN length: ${#ROLE_ARN}"
+            echo "ROLE_ARN format: $(echo "$ROLE_ARN" | sed 's/[0-9]/x/g')"
+            echo -n "ROLE_ARN hex: "
+            echo -n "$ROLE_ARN" | od -An -tx1
           fi
 
       - name: Configure AWS Credentials (OIDC Federation)
