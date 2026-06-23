@@ -1,69 +1,90 @@
+// server.js
+// Security and actions ledger audit service entrypoint
+
 const express = require('express');
-const { Pool } = require('pg');
 const cors = require('cors');
-const { validateToken, requireAnyRole } = require('./authMiddleware');
+const auditRoutes = require('./routes/auditRoutes');
+const AuditService = require('./services/auditService');
+const AuditModel = require('./models/auditModel');
+const client = require('prom-client');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-});
+// Enable default system metrics collection (CPU, Memory, GC metrics)
+client.collectDefaultMetrics();
 
-// Liveness probe
+// Liveness probe (must be before path-rewrite middleware)
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'audit-service' }));
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'audit-service' }));
+app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'audit-service' }));
 
-// Write to Audit Log (typically triggered internally/cross-service)
-app.post('/audit', validateToken, async (req, res) => {
+// Prometheus metrics endpoint
+app.get('/metrics', async (req, res) => {
   try {
-    const { actionType, resource, resourceId, beforeState, afterState, status, message } = req.body;
-    const actorId = req.user.userId;
-    const ipAddress = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
-
-    if (!actionType || !resource || !status) {
-      return res.status(400).json({ error: 'actionType, resource, and status are required' });
-    }
-
-    const result = await pool.query(
-      `INSERT INTO audit_logs 
-        (actor_id, ip_address, action_type, resource, resource_id, before_state, after_state, status, message)
-       VALUES 
-        ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [
-        actorId,
-        ipAddress,
-        actionType,
-        resource,
-        resourceId || null,
-        beforeState ? JSON.stringify(beforeState) : null,
-        afterState ? JSON.stringify(afterState) : null,
-        status,
-        message || null
-      ]
-    );
-
-    res.status(201).json(result.rows[0]);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+    res.set('Content-Type', client.register.contentType);
+    res.end(await client.register.metrics());
+  } catch (err) {
+    res.status(500).end(err.message);
   }
 });
 
-// Fetch Audit logs (Restricted to ADMIN or SUPER_ADMIN)
-app.get('/audit', validateToken, requireAnyRole(['ADMIN', 'SUPER_ADMIN']), async (req, res) => {
-  try {
-    const result = await pool.query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100');
-    res.json(result.rows);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
+// K8s ALB path prefix compatibility: strip /api/audit prefix
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/audit')) {
+    req.url = req.url.replace('/api/audit', '') || '/';
   }
+  next();
 });
+
+// Mount modular audit endpoints under /audit
+app.use('/audit', auditRoutes);
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Audit service running on port ${PORT}`);
-});
+
+async function start() {
+  const pool = AuditModel.getPool();
+  let retries = 5;
+
+  while (retries--) {
+    try {
+      await pool.query('SELECT 1');
+      console.log('✅ Connected to Audit database successfully.');
+      break;
+    } catch (err) {
+      console.log(`⏳ Waiting for database… (${retries} retries left) error: ${err.message}`);
+      if (retries === 0) {
+        console.error('❌ Could not connect to database. Continuing startup to maintain service availability.');
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+  }
+
+  // Start background queue processing loop
+  AuditService.startWorker();
+
+  const server = app.listen(PORT, () => {
+    console.log(`Audit service running on port ${PORT}`);
+  });
+
+  // Graceful shutdown handling to flush active worker logs and terminate database connections
+  const shutdown = () => {
+    console.log('🛑 Shutting down Audit Service. Cleaning queue worker and DB connections...');
+    AuditService.stopWorker();
+    
+    server.close(() => {
+      console.log('HTTP server closed.');
+      pool.end(() => {
+        console.log('Database pool closed.');
+        process.exit(0);
+      });
+    });
+  };
+
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+}
+
+start();

@@ -172,8 +172,18 @@ const logAudit = async (req, actionType, resource, resourceId, status, message) 
   }
 };
 
-// Liveness probe
+// Liveness probe (must be before path-rewrite middleware)
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'appointment-service' }));
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'appointment-service' }));
+app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'appointment-service' }));
+
+// K8s ALB path prefix compatibility: strip /api/appointments prefix
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/appointments') || req.url.startsWith('/api/appointment')) {
+    req.url = req.url.replace(/^\/api\/appointment[s]?/, '') || '/';
+  }
+  next();
+});
 
 // Book an appointment
 app.post('/appointments', validateToken, checkRelationship('elderId'), async (req, res) => {

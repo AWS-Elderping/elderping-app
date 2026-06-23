@@ -16,9 +16,17 @@ app.use(express.json());
 app.get('/health', (req, res) =>
   res.status(200).json({ status: 'ok', service: 'auth-service' })
 );
+app.get('/healthz', (req, res) =>
+  res.status(200).json({ status: 'ok', service: 'auth-service' })
+);
+app.get('/ready', (req, res) =>
+  res.status(200).json({ status: 'ok', service: 'auth-service' })
+);
 
 // Mount modular auth routes
+// Serve at both '/' (local/nginx proxy strips prefix) and '/api/auth' (K8s ALB passes full path)
 app.use('/', authRoutes);
+app.use('/api/auth', authRoutes);
 
 // ──────────────────────────────────────────────
 // SEED — creates demo users if the table is empty

@@ -33,10 +33,18 @@ const logAudit = async (req, actionType, resource, resourceId, status, message) 
   }
 };
 
-// Liveness probe
+// Liveness probe (must be before path-rewrite middleware)
 app.get('/health', (req, res) => res.status(200).json({ status: 'ok', service: 'reminder-service' }));
+app.get('/healthz', (req, res) => res.status(200).json({ status: 'ok', service: 'reminder-service' }));
+app.get('/ready', (req, res) => res.status(200).json({ status: 'ok', service: 'reminder-service' }));
 
-// Add new medication reminder
+// K8s ALB path prefix compatibility: strip /api/reminders prefix
+app.use((req, _res, next) => {
+  if (req.url.startsWith('/api/reminders') || req.url.startsWith('/api/reminder')) {
+    req.url = req.url.replace(/^\/api\/reminder[s]?/, '') || '/';
+  }
+  next();
+});
 app.post('/reminders', validateToken, checkRelationship('userId'), async (req, res) => {
   try {
     const { userId, medicationName, dosage, frequency, scheduledTime } = req.body;

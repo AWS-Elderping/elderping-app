@@ -4,14 +4,17 @@
 const validateRegister = (req, res, next) => {
   const { username, password, email, role } = req.body;
   
-  if (!username || typeof username !== 'string' || username.trim().length < 3) {
-    return res.status(400).json({ error: 'Username must be at least 3 characters long' });
+  // Require either email or username
+  const identifier = email || username;
+  if (!identifier || typeof identifier !== 'string' || identifier.trim().length < 3) {
+    return res.status(400).json({ error: 'Email or username is required (min 3 characters)' });
+  }
+  // If email is provided, validate format
+  if (email && (typeof email !== 'string' || !email.includes('@'))) {
+    return res.status(400).json({ error: 'Email must be a valid format' });
   }
   if (!password || typeof password !== 'string' || password.length < 6) {
     return res.status(400).json({ error: 'Password must be at least 6 characters long' });
-  }
-  if (email && (typeof email !== 'string' || !email.includes('@'))) {
-    return res.status(400).json({ error: 'Email must be a valid format' });
   }
   if (role) {
     const finalRole = role.toUpperCase();
@@ -25,9 +28,10 @@ const validateRegister = (req, res, next) => {
 };
 
 const validateLogin = (req, res, next) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: 'Username and password are required' });
+  const { username, password, email } = req.body;
+  // Accept either email or username
+  if ((!username && !email) || !password) {
+    return res.status(400).json({ error: 'Email/username and password are required' });
   }
   next();
 };

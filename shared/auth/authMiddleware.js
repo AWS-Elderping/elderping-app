@@ -54,6 +54,18 @@ const validateToken = (req, res, next) => {
 
   const token = authHeader.split(' ')[1];
 
+  // Service-to-Service authentication bypass using REPORT_SERVICE_TOKEN
+  const reportServiceToken = process.env.REPORT_SERVICE_TOKEN || 'mock-report-service-token';
+  if (token === reportServiceToken) {
+    req.user = {
+      id: 'SYSTEM',
+      userId: 'SYSTEM',
+      role: 'SUPER_ADMIN',
+      email: 'system-report@elderpinq.com'
+    };
+    return next();
+  }
+
   if (cognitoUserPoolId) {
     jwt.verify(token, getKey, { algorithms: ['RS256'] }, (err, decoded) => {
       if (err) return res.status(401).json({ error: 'Invalid or expired Cognito token' });

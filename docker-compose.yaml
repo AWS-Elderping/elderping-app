@@ -29,6 +29,8 @@ services:
       context: .
       dockerfile: auth-service/Dockerfile
       target: production
+      args:
+        service: auth-service
     ports:
       - "3001:3000"
     environment:
@@ -51,6 +53,8 @@ services:
       context: .
       dockerfile: health-service/Dockerfile
       target: production
+      args:
+        service: health-service
     ports:
       - "3002:3000"
     environment:
@@ -72,6 +76,8 @@ services:
       context: .
       dockerfile: reminder-service/Dockerfile
       target: production
+      args:
+        service: reminder-service
     ports:
       - "3003:3000"
     environment:
@@ -93,6 +99,8 @@ services:
       context: .
       dockerfile: alert-service/Dockerfile
       target: production
+      args:
+        service: alert-service
     ports:
       - "3004:3000"
     environment:

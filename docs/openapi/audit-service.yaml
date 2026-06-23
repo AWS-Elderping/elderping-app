@@ -1,55 +1,241 @@
 openapi: 3.0.3
 info:
   title: ElderPing Audit Service API
-  description: Platform audit trail logging and visibility.
   version: 1.0.0
-servers:
-  - url: http://localhost:3005
-    description: Local development reverse proxy port
+  description: Enterprise security ledger and asynchronous audit logging platform for the ElderPing microservices platform.
 paths:
   /audit:
     post:
-      summary: Write a new audit log entry
+      summary: Ingest an audit event
+      description: Internal logging ingestion endpoint. Accepts standard JWT or the system-wide microservice token. Events are enqueued and persisted asynchronously.
       security:
-        - bearerAuth: []
+        - BearerAuth: []
+        - SystemTokenAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                actionType:
-                  type: string
-                resource:
-                  type: string
-                resourceId:
-                  type: string
-                status:
-                  type: string
-                message:
-                  type: string
-              required:
-                - actionType
-                - resource
-                - status
+              $ref: '#/components/schemas/AuditEventInput'
       responses:
-        '201':
-          description: Log created successfully
-
+        '202':
+          description: Accepted. Event successfully enqueued for persistence.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: Accepted
+                  message:
+                    type: string
+                    example: Audit event queued successfully
+        '400':
+          description: Bad Request. Missing required payload fields.
+        '401':
+          description: Unauthorized. Missing or invalid authentication token.
+        '503':
+          description: Service Unavailable. The in-memory logging queue buffer is full.
     get:
-      summary: Retrieve all platform audit logs (ADMIN/SUPER_ADMIN only)
+      summary: Retrieve list of audit events
+      description: Fetches a simple paginated list of all audit events. Restricted to roles with AUDIT_READ permission (ADMIN/SUPER_ADMIN).
       security:
-        - bearerAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
       responses:
         '200':
-          description: List of audit logs
+          description: List of audit events returned successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditEvents'
+        '401':
+          description: Unauthorized.
         '403':
-          description: Forbidden
-
+          description: Forbidden. Insufficient permissions.
+  /audit/search:
+    get:
+      summary: Advanced search for audit events
+      description: Advanced filtering query. Restricted to roles with AUDIT_READ permission (ADMIN/SUPER_ADMIN).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: actorId
+          in: query
+          schema:
+            type: string
+        - name: actorRole
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+        - name: resource
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          description: ISO timestamp filter start
+          schema:
+            type: string
+            format: date-time
+        - name: endDate
+          in: query
+          description: ISO timestamp filter end
+          schema:
+            type: string
+            format: date-time
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Search query results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedAuditEvents'
+        '401':
+          description: Unauthorized.
+        '403':
+          description: Forbidden.
+  /audit/{id}:
+    get:
+      summary: Retrieve a single audit event
+      description: Fetches details of a singular audit event by UUID. Restricted to roles with AUDIT_READ permission (ADMIN/SUPER_ADMIN).
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Singular audit event returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEvent'
+        '401':
+          description: Unauthorized.
+        '403':
+          description: Forbidden.
+        '404':
+          description: Audit event not found.
 components:
   securitySchemes:
-    bearerAuth:
+    BearerAuth:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: Cognito or local JWT carrying userId, email, and role.
+    SystemTokenAuth:
+      type: http
+      scheme: bearer
+      description: System-wide AUDIT_SERVICE_TOKEN authorization.
+  schemas:
+    AuditEventInput:
+      type: object
+      required:
+        - action
+        - resource
+      properties:
+        actorId:
+          type: string
+          example: '123'
+        actorEmail:
+          type: string
+          format: email
+          example: admin@example.com
+        actorRole:
+          type: string
+          example: ADMIN
+        action:
+          type: string
+          example: APPLY_RECOMMENDATION
+        resource:
+          type: string
+          example: finops_recommendation
+        resourceId:
+          type: string
+          example: abc123
+        metadata:
+          type: object
+          example: {}
+        ipAddress:
+          type: string
+          example: 10.0.0.1
+        userAgent:
+          type: string
+          example: Mozilla/5.0
+    AuditEvent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        actor_id:
+          type: string
+        actor_email:
+          type: string
+        actor_role:
+          type: string
+        action:
+          type: string
+        resource:
+          type: string
+        resource_id:
+          type: string
+        metadata:
+          type: object
+        ip_address:
+          type: string
+        user_agent:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    PaginatedAuditEvents:
+      type: object
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        pagination:
+          type: object
+          properties:
+            total:
+              type: integer
+            page:
+              type: integer
+            limit:
+              type: integer
+            totalPages:
+              type: integer

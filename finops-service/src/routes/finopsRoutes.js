@@ -1,16 +1,24 @@
 // finopsRoutes.js
-// Express Router definitions for FinOps routes, securing them for SUPER_ADMIN role only
+// Express Router definitions for FinOps routes, securing them via permission scopes
 
 const express = require('express');
 const router = express.Router();
 const finopsController = require('../controllers/finopsController');
-const { authenticate, requireRole } = require('../../shared/auth');
+const { authenticate, requirePermission } = require('../../shared/auth');
 const validation = require('../validation/finopsValidation');
 
-// All FinOps endpoints are restricted strictly to SUPER_ADMIN per constraints
-router.get('/dashboard', authenticate, requireRole('SUPER_ADMIN'), finopsController.getDashboard);
-router.get('/recommendations', authenticate, requireRole('SUPER_ADMIN'), finopsController.getRecommendations);
-router.post('/recommendations/:id/apply', authenticate, requireRole('SUPER_ADMIN'), finopsController.applyRecommendation);
-router.post('/costs', authenticate, requireRole('SUPER_ADMIN'), validation.validateCostsPayload, finopsController.recordCosts);
+// Read-only FinOps operations (FINOPS_READ)
+router.get('/dashboard', authenticate, requirePermission('FINOPS_READ'), finopsController.getDashboard);
+router.get('/costs', authenticate, requirePermission('FINOPS_READ'), finopsController.getCosts);
+router.get('/budgets', authenticate, requirePermission('FINOPS_READ'), finopsController.getBudgets);
+router.get('/provider-status', authenticate, requirePermission('FINOPS_READ'), finopsController.getProviderStatus);
+
+// Privileged FinOps operations (FINOPS_MANAGE)
+router.get('/recommendations', authenticate, requirePermission('FINOPS_MANAGE'), finopsController.getRecommendations);
+router.post('/recommendations/:id/apply', authenticate, requirePermission('FINOPS_MANAGE'), finopsController.applyRecommendation);
+router.post('/recommendations/:id/dismiss', authenticate, requirePermission('FINOPS_MANAGE'), finopsController.dismissRecommendation);
+
+// Legacy record telemetry cost (FINOPS_MANAGE)
+router.post('/costs', authenticate, requirePermission('FINOPS_MANAGE'), validation.validateCostsPayload, finopsController.recordCosts);
 
 module.exports = router;

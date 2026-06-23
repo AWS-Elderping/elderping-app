@@ -5,7 +5,7 @@ import { register } from '../api/authApi';
 
 export default function Register() {
   const navigate = useNavigate();
-  const [username, setUsername]   = useState('');
+  const [email, setEmail]         = useState('');
   const [password, setPassword]   = useState('');
   const [role, setRole]           = useState('family');
   const [showPass, setShowPass]   = useState(false);
@@ -19,7 +19,7 @@ export default function Register() {
     setError('');
     setSuccess('');
     try {
-      await register({ username, password, role });
+      await register({ email, password, role });
       setSuccess('Account created! Redirecting to login…');
       setTimeout(() => navigate('/login'), 1800);
     } catch (err) {
@@ -61,17 +61,17 @@ export default function Register() {
 
           <form onSubmit={handleRegister} className="space-y-6">
             <div>
-              <label className="block text-xl font-semibold text-gray-700 mb-2" htmlFor="reg-username">
-                Username
+              <label className="block text-xl font-semibold text-gray-700 mb-2" htmlFor="reg-email">
+                Email Address
               </label>
               <input
-                id="reg-username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Choose a username"
+                id="reg-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="your@email.com"
                 required
-                minLength={3}
+                autoComplete="email"
                 className="w-full border-2 border-gray-300 rounded-xl px-5 py-4 text-xl text-gray-800 focus:outline-none focus:border-indigo-600 transition-colors"
               />
             </div>
