@@ -146,7 +146,30 @@ jobs:
             sed -i "s/tag: .*/tag: \"$IMAGE_TAG\"/g" "$TARGET_FILE"
             git add "$TARGET_FILE"
             git commit -m "Auto-bump: $SERVICE_NAME image tag to $IMAGE_TAG for $ENVIRONMENT [skip ci]"
-            git push origin main
+            
+            # Concurrency-safe push with retries and rebase
+            MAX_RETRIES=10
+            RETRY_COUNT=0
+            PUSH_SUCCESS=false
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+              # Rebase to fetch and apply our change on top of any concurrently pushed tags
+              git pull --rebase origin main
+              if git push origin main; then
+                PUSH_SUCCESS=true
+                break
+              fi
+              RETRY_COUNT=$((RETRY_COUNT+1))
+              # Wait with exponential backoff plus jitter
+              WAIT_TIME=$((RETRY_COUNT * 2 + RANDOM % 3))
+              echo "Push rejected or failed. Retrying in $WAIT_TIME seconds (Attempt $((RETRY_COUNT+1))/$MAX_RETRIES)..."
+              sleep $WAIT_TIME
+            done
+            
+            if [ "$PUSH_SUCCESS" = false ]; then
+              echo "Error: Failed to push changes to GitOps repo after $MAX_RETRIES attempts."
+              exit 1
+            fi
           else
             echo "Warning: Target file $TARGET_FILE not found in GitOps repository. Skipping auto-bump."
           fi
