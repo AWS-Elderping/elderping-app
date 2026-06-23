@@ -11,6 +11,7 @@ COPY shared/auth ./shared/auth
 FROM node:18-alpine AS production
 ARG service
 WORKDIR /usr/src/app
+RUN apk update && apk upgrade --no-cache
 # Set non-root user
 USER node
 COPY --chown=node:node --from=build /usr/src/app/node_modules ./node_modules

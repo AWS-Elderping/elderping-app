@@ -18,6 +18,7 @@ RUN npm run build
 # ============================
 FROM nginx:1.25-alpine AS production
 ARG service
+RUN apk update && apk upgrade --no-cache
 
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
