@@ -1,27 +1,29 @@
-﻿# ============================
+# ============================
 # Stage 1: Build the React app
 # ============================
 FROM node:22-alpine AS build
+ARG service
 WORKDIR /app
 
 # Install dependencies first (layer cache optimisation)
-COPY package*.json ./
+COPY $service/package*.json ./
 RUN npm install
 
 # Copy source and build
-COPY . .
+COPY $service/ ./
 RUN npm run build
 
 # ============================
 # Stage 2: Serve with Nginx
 # ============================
 FROM nginx:1.25-alpine AS production
+ARG service
 
 # Remove default nginx config
 RUN rm /etc/nginx/conf.d/default.conf
 
 # Copy our custom config
-COPY nginx.conf /etc/nginx/conf.d/
+COPY $service/nginx.conf /etc/nginx/conf.d/
 
 # Copy built assets from build stage
 COPY --from=build /app/dist /usr/share/nginx/html
